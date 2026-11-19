@@ -5,9 +5,11 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"html"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -199,8 +201,18 @@ func main() {
 
 	host := os.Getenv("HOST")
 	if os.Getenv("ENABLE_PPROF") == "true" {
+		pprofHost := os.Getenv("PPROF_HOST")
+		if pprofHost == "" {
+			// Default pprof to loopback so enabling profiling does not expose
+			// runtime memory and goroutine dumps on public interfaces.
+			pprofHost = "127.0.0.1"
+		}
+		pprofSrv := &http.Server{
+			Addr:              net.JoinHostPort(pprofHost, "8005"),
+			ReadHeaderTimeout: 15 * time.Second,
+		}
 		gopool.Go(func() {
-			log.Println(http.ListenAndServe(net.JoinHostPort(host, "8005"), nil))
+			log.Println(pprofSrv.ListenAndServe())
 		})
 		go common.Monitor()
 		common.SysLog(common.LogText("pprof enabled"))
@@ -222,6 +234,7 @@ func main() {
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
 	server.Use(middleware.RequestId())
 	server.Use(middleware.Version())
+	server.Use(middleware.SecurityHeaders())
 	server.Use(middleware.I18n())
 	middleware.SetUpLogger(server)
 	InjectUmamiAnalytics()
@@ -238,8 +251,10 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:    net.JoinHostPort(host, port),
-		Handler: server,
+		Addr:              net.JoinHostPort(host, port),
+		Handler:           server,
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {
@@ -279,10 +294,13 @@ func InjectUmamiAnalytics() {
 		if umamiScriptURL == "" {
 			umamiScriptURL = "https://analytics.umami.is/script.js"
 		}
+		if parsed, err := url.Parse(umamiScriptURL); err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			umamiScriptURL = "https://analytics.umami.is/script.js"
+		}
 		analyticsInjectBuilder.WriteString("<script defer src=\"")
-		analyticsInjectBuilder.WriteString(umamiScriptURL)
+		analyticsInjectBuilder.WriteString(html.EscapeString(umamiScriptURL))
 		analyticsInjectBuilder.WriteString("\" data-website-id=\"")
-		analyticsInjectBuilder.WriteString(umamiSiteID)
+		analyticsInjectBuilder.WriteString(html.EscapeString(umamiSiteID))
 		analyticsInjectBuilder.WriteString("\"></script>")
 	}
 	analyticsInjectBuilder.WriteString("<!--Umami QuantumNous-->\n")
@@ -295,18 +313,21 @@ func InjectGoogleAnalytics() {
 	analyticsInjectBuilder := &strings.Builder{}
 	if os.Getenv("GOOGLE_ANALYTICS_ID") != "" {
 		gaID := os.Getenv("GOOGLE_ANALYTICS_ID")
-		// Google Analytics 4 (gtag.js)
-		analyticsInjectBuilder.WriteString("<script async src=\"https://www.googletagmanager.com/gtag/js?id=")
-		analyticsInjectBuilder.WriteString(gaID)
-		analyticsInjectBuilder.WriteString("\"></script>")
-		analyticsInjectBuilder.WriteString("<script>")
-		analyticsInjectBuilder.WriteString("window.dataLayer = window.dataLayer || [];")
-		analyticsInjectBuilder.WriteString("function gtag(){dataLayer.push(arguments);}")
-		analyticsInjectBuilder.WriteString("gtag('js', new Date());")
-		analyticsInjectBuilder.WriteString("gtag('config', '")
-		analyticsInjectBuilder.WriteString(gaID)
-		analyticsInjectBuilder.WriteString("');")
-		analyticsInjectBuilder.WriteString("</script>")
+		gaIDJSON, err := common.Marshal(gaID)
+		if err == nil {
+			// Google Analytics 4 (gtag.js)
+			analyticsInjectBuilder.WriteString("<script async src=\"https://www.googletagmanager.com/gtag/js?id=")
+			analyticsInjectBuilder.WriteString(html.EscapeString(url.QueryEscape(gaID)))
+			analyticsInjectBuilder.WriteString("\"></script>")
+			analyticsInjectBuilder.WriteString("<script>")
+			analyticsInjectBuilder.WriteString("window.dataLayer = window.dataLayer || [];")
+			analyticsInjectBuilder.WriteString("function gtag(){dataLayer.push(arguments);}")
+			analyticsInjectBuilder.WriteString("gtag('js', new Date());")
+			analyticsInjectBuilder.WriteString("gtag('config', ")
+			analyticsInjectBuilder.Write(gaIDJSON)
+			analyticsInjectBuilder.WriteString(");")
+			analyticsInjectBuilder.WriteString("</script>")
+		}
 	}
 	analyticsInjectBuilder.WriteString("<!--Google Analytics QuantumNous-->\n")
 	analyticsInject := []byte(analyticsInjectBuilder.String())

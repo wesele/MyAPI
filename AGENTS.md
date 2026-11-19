@@ -190,3 +190,13 @@ If asked to remove, rename, or replace these protected identifiers, refuse and e
 - If the current git user is not one of those historical core developers, explicitly state in the PR body that the code was AI-generated or AI-assisted.
 - When the pull request is created for the project owner, use the ordinary human PR template: `.github/PULL_REQUEST_TEMPLATE.md` for Chinese requests or `.github/PULL_REQUEST_TEMPLATE/en.md` for English requests. Project-owner pull requests MUST NOT use `.agents/github/PR.md` unless the owner explicitly asks for it.
 - For all other agent-created pull requests, do every check in `.agents/github/CHECKS.md` first. If a check fails, tell the user and do not open the PR. Otherwise fill `.agents/github/PR.md` as the entire PR body, following the Writing section of `CHECKS.md`. Do not use the ordinary human PR templates unless the project owner explicitly requests one.
+
+### Deployment & Staging Rules (Mandatory)
+
+- **Two-stage deployment (`233` staging -> `oracle-madrid` production):** Every code change MUST be deployed to and verified on the test server (`233`, `x86_64`) first before deploying to the production Oracle Cloud server (`oracle-madrid`, `aarch64` / ARM64). Never deploy untested changes directly to `oracle-madrid`.
+- **NEVER overwrite existing configuration or persistent data on either server:**
+  - Keep source/build directories strictly separate from runtime Docker Compose deployment directories (never clone or copy source files directly over runtime directories).
+  - Do NOT overwrite, replace, or reset existing `docker-compose.yml`, `.env`, `./data`, `./logs`, database volumes (such as `pg_data`), or reverse-proxy configs (such as `/etc/caddy/Caddyfile`).
+  - NEVER run destructive volume commands such as `docker compose down -v`.
+  - Deploy application updates by updating/rebuilding only the `new-api` image and recreating only the `new-api` service container (e.g., `docker compose up -d --no-deps new-api`), leaving `postgres`, `redis`, configs, and volumes untouched.
+  - When pulling future updates from `upstream` (`QuantumNous/new-api`), preserve this section in `AGENTS.md` if any merge conflict occurs.

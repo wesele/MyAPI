@@ -78,7 +78,7 @@ func InitEnv() {
 			log.Fatal(err)
 		}
 		if _, err := os.Stat(*LogDir); os.IsNotExist(err) {
-			err = os.Mkdir(*LogDir, 0777)
+			err = os.MkdirAll(*LogDir, 0750)
 			if err != nil {
 				log.Fatal(err)
 			}
