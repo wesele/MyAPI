@@ -231,15 +231,25 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/wechat-official-account": accessTokenSessionRule,
 	"PUT /api/wechat-official-account": accessTokenSessionRule,
 
+	// The administrative survey summary is available to root dashboard sessions.
+	"GET /api/shared/survey/summary": accessTokenSessionRule,
+
 	// router/api-router.go: /api/redemption
-	"GET /api/redemption/":           accessTokenScopeRule("redemption:read"),
-	"GET /api/redemption/search":     accessTokenScopeRule("redemption:read"),
-	"GET /api/redemption/:id":        accessTokenScopeRule("redemption:read"),
-	"POST /api/redemption/":          accessTokenScopeRule("redemption:write"),
-	"POST /api/redemption/batch":     accessTokenScopeRule("redemption:write"),
-	"PUT /api/redemption/":           accessTokenScopeRule("redemption:write"),
-	"DELETE /api/redemption/invalid": accessTokenScopeRule("redemption:write"),
-	"DELETE /api/redemption/:id":     accessTokenScopeRule("redemption:write"),
+	"GET /api/redemption/":                          accessTokenScopeRule("redemption:read"),
+	"GET /api/redemption/search":                    accessTokenScopeRule("redemption:read"),
+	"GET /api/redemption/groups":                    accessTokenScopeRule("redemption:read"),
+	"GET /api/redemption/groups/:group_id/download": accessTokenScopeRule("redemption:read"),
+	"GET /api/redemption/:id":                       accessTokenScopeRule("redemption:read"),
+	"POST /api/redemption/":                         accessTokenScopeRule("redemption:write"),
+	"POST /api/redemption/batch":                    accessTokenScopeRule("redemption:write"),
+	"POST /api/redemption/groups":                   accessTokenScopeRule("redemption:write"),
+	"POST /api/redemption/groups/:group_id/disable": accessTokenScopeRule("redemption:write"),
+	"PUT /api/redemption/groups/:group_id":          accessTokenScopeRule("redemption:write"),
+	"PUT /api/redemption/groups/members":            accessTokenScopeRule("redemption:write"),
+	"PUT /api/redemption/":                          accessTokenScopeRule("redemption:write"),
+	"DELETE /api/redemption/groups/:group_id":       accessTokenScopeRule("redemption:write"),
+	"DELETE /api/redemption/invalid":                accessTokenScopeRule("redemption:write"),
+	"DELETE /api/redemption/:id":                    accessTokenScopeRule("redemption:write"),
 
 	// router/api-router.go: /api/audit, /api/log, /api/data
 	"GET /api/audit/self":                       accessTokenScopeRule("usage:read"),

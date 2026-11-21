@@ -33,6 +33,10 @@ var accessTokenExemptRoutes = []string{
 	"GET /api/home_page_content",
 	"GET /api/ratio_config",
 	"GET /api/user/groups",
+	"GET /api/shared/reference-prices",
+	"GET /api/shared/survey",
+	"PUT /api/shared/survey",
+	"GET /api/shared/survey/results",
 
 	// Anonymous account entry points.
 	"GET /api/verification",
@@ -70,6 +74,9 @@ var accessTokenExemptRoutes = []string{
 	// API key authentication (TokenAuthReadOnly).
 	"GET /api/usage/token/",
 	"GET /api/log/token",
+	"POST /api/shared/usage",
+	"GET /api/shared/usage/:id/totals",
+	"GET /api/shared/usage/:id/logs",
 }
 
 // accessTokenHelperRoutes are declared through handlePermissionRoute outside
