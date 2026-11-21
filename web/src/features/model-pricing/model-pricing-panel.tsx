@@ -45,11 +45,7 @@ import {
   useSaveModelPricing,
   type ModelPricingEntry,
 } from './api'
-import {
-  getSitePricingCurrency,
-  isValidPricingCurrency,
-  USD_PRICING_CURRENCY,
-} from './currency'
+import { getModelPricingCurrency } from './currency'
 import { modelPricingDisplay, pricingFromDraft, pricingRow } from './pricing'
 
 export function ModelPricingPanel(props: {
@@ -130,11 +126,7 @@ export function ModelPricingPanel(props: {
   }
   if (!editData || !entry) return <LoadingState />
   const effectivePricing = modelPricingDisplay(entry)
-  const siteCurrency = getSitePricingCurrency(currencyConfig)
-  const currency =
-    currencyPreference === 'site' && isValidPricingCurrency(siteCurrency)
-      ? siteCurrency
-      : USD_PRICING_CURRENCY
+  const currency = getModelPricingCurrency(currencyConfig, currencyPreference)
   const current = pricingRow(entry.model_name, entry.effective)
   const currentLanes = createInitialLaneState(current)
   const details = buildPreviewRows(

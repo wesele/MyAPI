@@ -121,8 +121,10 @@ export const Route = createRootRouteWithContext<{
     }
 
     const pathname = location?.pathname || ''
+    // The public Key lookup is available even before an administrator signs in
+    // or initializes the instance. Entering the main site still checks setup.
     const needsSetupCheck =
-      !setupStatusChecked && !pathname.startsWith('/setup')
+      !setupStatusChecked && pathname !== '/' && !pathname.startsWith('/setup')
     const authBootstrap = bootstrapAuthentication()
 
     // 只检查 setup 状态（如果需要）

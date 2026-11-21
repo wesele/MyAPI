@@ -72,7 +72,8 @@ import {
   transformFormDataToPayload,
   transformRedemptionToFormDefaults,
 } from '../lib'
-import type { Redemption } from '../types'
+import type { Redemption, RedemptionGroup } from '../types'
+import { RedemptionGroupSelect } from './redemption-group-select'
 import {
   RedemptionsExportDialog,
   type RedemptionExportData,
@@ -83,12 +84,16 @@ type RedemptionsMutateDrawerProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   currentRow?: Redemption
+  groups?: RedemptionGroup[]
+  groupId?: number
 }
 
 export function RedemptionsMutateDrawer({
   open,
   onOpenChange,
   currentRow,
+  groups,
+  groupId,
 }: RedemptionsMutateDrawerProps) {
   const { t } = useTranslation()
   const isUpdate = !!currentRow
@@ -120,7 +125,7 @@ export function RedemptionsMutateDrawer({
     }
 
     if (!isUpdate || redemptionId === undefined) {
-      form.reset(REDEMPTION_FORM_DEFAULT_VALUES)
+      form.reset({ ...REDEMPTION_FORM_DEFAULT_VALUES, group_id: groupId })
       setRedemptionLoadState('ready')
       setLoadedRedemption(null)
       return
@@ -160,7 +165,7 @@ export function RedemptionsMutateDrawer({
     return () => {
       ignoreResult = true
     }
-  }, [open, isUpdate, redemptionId, form, t])
+  }, [open, isUpdate, redemptionId, form, t, groupId])
 
   const isUpdateReady =
     !isUpdate ||
@@ -307,6 +312,27 @@ export function RedemptionsMutateDrawer({
                       </FormItem>
                     )}
                   />
+
+                  {!isUpdate && groups && (groups.length > 0 || !!groupId) && (
+                    <FormField
+                      control={form.control}
+                      name='group_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel htmlFor='redemption-create-group'>
+                            {t('Group')}
+                          </FormLabel>
+                          <RedemptionGroupSelect
+                            id='redemption-create-group'
+                            groups={groups}
+                            value={field.value ?? 0}
+                            onChange={field.onChange}
+                          />
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
 
                   <FormField
                     control={form.control}

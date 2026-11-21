@@ -69,7 +69,7 @@ export function PublicHeader(props: PublicHeaderProps) {
     showLanguageSwitcher = true,
     logo: customLogo,
     siteName: customSiteName,
-    homeUrl = '/',
+    homeUrl = '/home',
     showAuthButtons = true,
     showNotifications = true,
   } = props

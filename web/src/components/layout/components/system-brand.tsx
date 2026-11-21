@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils'
 type SystemBrandProps = {
   defaultName?: string
   defaultVersion?: string
+  homeLink?: '/' | '/home'
   /**
    * Visual layout:
    * - 'sidebar': stacked card style (used inside the sidebar header).
@@ -42,7 +43,7 @@ type SystemBrandProps = {
 /**
  * System brand component
  * Displays current system logo + name.
- * - inline: compact pill in the top app bar; clicking navigates to home (/)
+ * - inline: compact pill in the top app bar with a home link
  * - sidebar: stacked card in the sidebar header (display only)
  */
 export function SystemBrand(props: SystemBrandProps) {
@@ -58,7 +59,7 @@ export function SystemBrand(props: SystemBrandProps) {
   if (variant === 'inline') {
     return (
       <Link
-        to='/'
+        to={props.homeLink ?? '/home'}
         aria-label={t('Go to home')}
         className={cn(
           'text-foreground inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-sm font-medium transition-colors outline-none select-none',

@@ -35,7 +35,9 @@ import { isRedemptionExpired, isTimestampExpired } from '../lib'
 import type { Redemption } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
 
-export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
+export function useRedemptionsColumns(
+  groupNames: ReadonlyMap<number, string>
+): ColumnDef<Redemption>[] {
   const { t } = useTranslation()
   return [
     {
@@ -80,6 +82,20 @@ export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
         <span className='font-medium'>{row.getValue('name')}</span>
       ),
       size: 180,
+    },
+    {
+      accessorKey: 'group_id',
+      header: t('Group'),
+      cell: ({ row }) => {
+        const groupId = row.original.group_id
+        const name = groupId ? groupNames.get(groupId) : t('Ungrouped')
+        return (
+          <span className='block max-w-40 truncate' title={name}>
+            {name ?? '—'}
+          </span>
+        )
+      },
+      size: 140,
     },
     {
       accessorKey: 'status',

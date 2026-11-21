@@ -30,8 +30,9 @@ import { useDataTable } from '@/components/data-table'
 import { api } from '@/lib/api'
 
 import { getRedemptions } from '../../api'
-import type { Redemption } from '../../types'
+import type { Redemption, RedemptionGroup } from '../../types'
 import { DataTableBulkActions } from '../data-table-bulk-actions'
+import { RedemptionsPrimaryButtons } from '../redemptions-primary-buttons'
 import { RedemptionsProvider, useRedemptions } from '../redemptions-provider'
 
 const codes: Redemption[] = [11, 22, 33].map((id) => ({
@@ -73,12 +74,15 @@ function RedemptionList() {
           {row.original.name}
         </label>
       ))}
-      <DataTableBulkActions table={table} />
+      <DataTableBulkActions
+        table={table}
+        groups={[{ id: 5, name: 'Conference' }]}
+      />
     </>
   )
 }
 
-async function setup() {
+async function setup(currentGroup?: RedemptionGroup) {
   let remaining = [...codes]
   vi.spyOn(api, 'get').mockImplementation(async () => ({
     data: {
@@ -101,6 +105,7 @@ async function setup() {
   render(
     <QueryClientProvider client={client}>
       <RedemptionsProvider>
+        <RedemptionsPrimaryButtons currentGroup={currentGroup} />
         <RedemptionList />
       </RedemptionsProvider>
       <Toaster />
@@ -114,6 +119,62 @@ afterEach(() => {
   toast.dismiss()
   for (const client of clients) client.clear()
   clients.length = 0
+})
+
+test('disabling a group is unavailable in the all-groups view', async () => {
+  await setup()
+  expect(
+    screen.getByRole('button', { name: 'Disable Current Group' })
+  ).toBeDisabled()
+})
+
+test.each([
+  { id: 5, name: 'Conference' },
+  { id: 0, name: 'Ungrouped' },
+])('only disables $name after confirmation', async (group) => {
+  const { user, remove: post } = await setup(group)
+  post.mockResolvedValueOnce({ data: { success: true, data: 7 } })
+  await user.click(screen.getByRole('checkbox', { name: 'code-11' }))
+  await user.click(
+    screen.getByRole('button', { name: 'Disable Current Group' })
+  )
+  const dialog = within(await screen.findByRole('alertdialog'))
+  expect(
+    dialog.getByText(`Disable all enabled redemption codes in “${group.name}”?`)
+  ).toBeVisible()
+  expect(post).not.toHaveBeenCalled()
+  await user.click(dialog.getByRole('button', { name: 'Disable' }))
+
+  expect(await screen.findByText('Disabled 7 redemption codes')).toBeVisible()
+  expect(post).toHaveBeenCalledExactlyOnceWith(
+    `/api/redemption/groups/${group.id}/disable`
+  )
+})
+
+test('moving selected codes requires a group and submits only selected codes', async () => {
+  const { user } = await setup()
+  const move = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+
+  await user.click(screen.getByRole('checkbox', { name: 'code-11' }))
+  await user.click(screen.getByRole('checkbox', { name: 'code-33' }))
+  await user.click(screen.getByRole('button', { name: 'Move to Group' }))
+
+  const dialog = within(await screen.findByRole('alertdialog'))
+  expect(dialog.getByRole('button', { name: 'Move' })).toBeDisabled()
+  await user.selectOptions(dialog.getByRole('combobox', { name: 'Group' }), '5')
+  await user.click(dialog.getByRole('button', { name: 'Move' }))
+
+  await waitFor(() =>
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  )
+  expect(move).toHaveBeenCalledWith('/api/redemption/groups/members', {
+    ids: [11, 33],
+    group_id: 5,
+  })
+  expect(screen.getByRole('checkbox', { name: 'code-11' })).not.toBeChecked()
+  expect(screen.getByRole('checkbox', { name: 'code-33' })).not.toBeChecked()
 })
 
 test('shows deletion only for selected codes and cancellation sends no requests', async () => {

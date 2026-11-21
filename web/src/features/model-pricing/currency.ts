@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { formatPricingNumber } from '@/features/system-settings/models/pricing-format'
+import type { PricingCurrencyPreference } from '@/stores/pricing-preferences-store'
 import type { CurrencyConfig } from '@/stores/system-config-store'
 
 export type PricingCurrency = {
@@ -31,11 +32,15 @@ export const USD_PRICING_CURRENCY: PricingCurrency = {
   exchangeRate: 1,
 }
 
+export function yuanPricingCurrency(rate: number): PricingCurrency {
+  return { label: 'CNY', symbol: '¥', exchangeRate: rate }
+}
+
 export function getSitePricingCurrency(
   config: CurrencyConfig
 ): PricingCurrency | null {
   if (config.quotaDisplayType === 'CNY') {
-    return { label: 'CNY', symbol: '¥', exchangeRate: config.usdExchangeRate }
+    return yuanPricingCurrency(config.usdExchangeRate)
   }
   if (config.quotaDisplayType === 'CUSTOM') {
     const symbol = config.customCurrencySymbol?.trim() || '¤'
@@ -46,6 +51,18 @@ export function getSitePricingCurrency(
     }
   }
   return null
+}
+
+export function getModelPricingCurrency(
+  config: CurrencyConfig,
+  preference: PricingCurrencyPreference
+): PricingCurrency {
+  if (preference === 'USD') return USD_PRICING_CURRENCY
+  const currency =
+    preference === 'site'
+      ? getSitePricingCurrency(config)
+      : yuanPricingCurrency(config.usdExchangeRate)
+  return isValidPricingCurrency(currency) ? currency : USD_PRICING_CURRENCY
 }
 
 export function isValidPricingCurrency(

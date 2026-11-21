@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"unicode/utf8"
@@ -14,6 +15,10 @@ import (
 )
 
 func GetAllRedemptions(c *gin.Context) {
+	if _, grouped := c.GetQuery("group_id"); grouped {
+		SearchRedemptions(c)
+		return
+	}
 	pageInfo := common.GetPageQuery(c)
 	redemptions, total, err := model.GetAllRedemptions(pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
@@ -30,7 +35,16 @@ func SearchRedemptions(c *gin.Context) {
 	keyword := c.Query("keyword")
 	status := c.Query("status")
 	pageInfo := common.GetPageQuery(c)
-	redemptions, total, err := model.SearchRedemptions(keyword, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	var groupId *int
+	if raw, ok := c.GetQuery("group_id"); ok {
+		id, err := strconv.Atoi(raw)
+		if err != nil || id < 0 {
+			common.ApiErrorT(c, "Invalid parameters")
+			return
+		}
+		groupId = &id
+	}
+	redemptions, total, err := model.SearchRedemptionsInGroup(keyword, status, groupId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -84,6 +98,10 @@ func AddRedemption(c *gin.Context) {
 		common.ApiErrorT(c, "Maximum 100 redemption codes can be generated at once")
 		return
 	}
+	if redemption.GroupId < 0 {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
 	if redemption.Quota <= 0 {
 		common.ApiErrorT(c, "Redemption quota must be positive")
 		return
@@ -96,8 +114,9 @@ func AddRedemption(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	var keys []string
-	for i := 0; i < redemption.Count; i++ {
+	keys := make([]string, 0, redemption.Count)
+	var groupedCodes []model.Redemption
+	for range redemption.Count {
 		key := common.GetUUID()
 		cleanRedemption := model.Redemption{
 			UserId:      c.GetInt("id"),
@@ -107,6 +126,11 @@ func AddRedemption(c *gin.Context) {
 			Quota:       redemption.Quota,
 			ExpiredTime: redemption.ExpiredTime,
 		}
+		if redemption.GroupId != 0 {
+			groupedCodes = append(groupedCodes, cleanRedemption)
+			keys = append(keys, key)
+			continue
+		}
 		err = cleanRedemption.Insert()
 		if err != nil {
 			common.SysError(common.LogText("failed to insert redemption: %s", err.Error()))
@@ -115,10 +139,22 @@ func AddRedemption(c *gin.Context) {
 		}
 		keys = append(keys, key)
 	}
+	if len(groupedCodes) > 0 {
+		if err := model.CreateGroupedRedemptions(redemption.GroupId, groupedCodes); err != nil {
+			var message *common.Message
+			if errors.As(err, &message) {
+				common.ApiError(c, message)
+			} else {
+				common.ApiErrorT(c, "Failed to create redemption code, please try again later")
+			}
+			return
+		}
+	}
 	recordManageAudit(c, "redemption.create", map[string]any{
-		"name":  redemption.Name,
-		"count": redemption.Count,
-		"quota": logger.FormatQuota(redemption.Quota),
+		"name":     redemption.Name,
+		"count":    redemption.Count,
+		"quota":    logger.FormatQuota(redemption.Quota),
+		"group_id": redemption.GroupId,
 	})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -172,11 +208,11 @@ func UpdateRedemption(c *gin.Context) {
 		cleanRedemption.Name = redemption.Name
 		cleanRedemption.Quota = redemption.Quota
 		cleanRedemption.ExpiredTime = redemption.ExpiredTime
-	}
-	if statusOnly != "" {
+		err = cleanRedemption.Update()
+	} else {
 		cleanRedemption.Status = redemption.Status
+		err = cleanRedemption.UpdateStatus()
 	}
-	err = cleanRedemption.Update()
 	if err != nil {
 		common.ApiError(c, err)
 		return

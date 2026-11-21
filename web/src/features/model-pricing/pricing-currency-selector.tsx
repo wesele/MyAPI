@@ -32,26 +32,48 @@ import {
 } from '@/components/ui/select'
 import { usePricingPreferencesStore } from '@/stores/pricing-preferences-store'
 
-import { isValidPricingCurrency, type PricingCurrency } from './currency'
+import {
+  isValidPricingCurrency,
+  yuanPricingCurrency,
+  type PricingCurrency,
+} from './currency'
 
 export function PricingCurrencySelector(props: {
   siteCurrency: PricingCurrency | null
+  usdExchangeRate: number
 }) {
   const { t } = useTranslation()
   const id = useId()
   const preference = usePricingPreferencesStore((state) => state.currency)
   const setCurrency = usePricingPreferencesStore((state) => state.setCurrency)
-  const available = isValidPricingCurrency(props.siteCurrency)
-  const value = available && preference === 'site' ? 'site' : 'USD'
-  const items = [{ value: 'USD', label: t('US dollar (USD)') }]
+  const yuan = yuanPricingCurrency(props.usdExchangeRate)
+  const items = [{ value: 'USD', label: t('US dollar (USD)'), disabled: false }]
+  if (props.siteCurrency?.label !== 'CNY') {
+    items.push({
+      value: 'CNY',
+      label: t('Chinese yuan (CNY)'),
+      disabled: !isValidPricingCurrency(yuan),
+    })
+  }
   if (props.siteCurrency) {
     items.push({
       value: 'site',
       label: t('Site currency ({{currency}})', {
         currency: props.siteCurrency.label,
       }),
+      disabled: !isValidPricingCurrency(props.siteCurrency),
     })
   }
+  const selected =
+    preference === 'CNY' && props.siteCurrency?.label === 'CNY'
+      ? 'site'
+      : preference
+  const value = items.some((item) => item.value === selected && !item.disabled)
+    ? selected
+    : 'USD'
+  const localCurrency =
+    value === 'CNY' || !props.siteCurrency ? yuan : props.siteCurrency
+  const available = isValidPricingCurrency(localCurrency)
 
   return (
     <Field className='mb-4 gap-2'>
@@ -76,11 +98,11 @@ export function PricingCurrencySelector(props: {
               'The system always bills in USD. Site currency makes entering and converting prices easier; amounts are converted to USD using the site exchange rate. Switching currencies does not change the actual price. Raw billing expressions always use USD.'
             )}
           </p>
-          {available && props.siteCurrency && (
+          {available && (
             <p className='mt-3 text-sm'>
               {t('Current exchange rate: 1 USD = {{rate}} {{currency}}', {
-                rate: String(props.siteCurrency.exchangeRate),
-                currency: props.siteCurrency.label,
+                rate: String(localCurrency.exchangeRate),
+                currency: localCurrency.label,
               })}
             </p>
           )}
@@ -90,7 +112,7 @@ export function PricingCurrencySelector(props: {
         items={items}
         value={value}
         onValueChange={(next) => {
-          if (next === 'USD' || (next === 'site' && available)) {
+          if (next === 'USD' || next === 'site' || next === 'CNY') {
             setCurrency(next)
           }
         }}
@@ -98,9 +120,7 @@ export function PricingCurrencySelector(props: {
         <SelectTrigger
           id={id}
           className='w-full sm:w-64'
-          aria-describedby={
-            props.siteCurrency && !available ? `${id}-error` : undefined
-          }
+          aria-describedby={!available ? `${id}-error` : undefined}
         >
           <SelectValue />
         </SelectTrigger>
@@ -109,14 +129,14 @@ export function PricingCurrencySelector(props: {
             <SelectItem
               key={item.value}
               value={item.value}
-              disabled={item.value === 'site' && !available}
+              disabled={item.disabled}
             >
               {item.label}
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
-      {props.siteCurrency && !available && (
+      {!available && (
         <p id={`${id}-error`} className='text-muted-foreground text-xs'>
           {t('The site exchange rate is invalid. Prices are shown in USD.')}
         </p>

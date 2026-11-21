@@ -154,6 +154,13 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             icon: Ticket,
           },
           {
+            title: t('WeChat Official Account API'),
+            url: '/wechat-official-account',
+            configUrls: ['/redemption-codes'],
+            icon: MessageSquare,
+            requiredRole: ROLE.ADMIN,
+          },
+          {
             title: t('Subscriptions'),
             url: '/subscriptions',
             icon: CreditCard,

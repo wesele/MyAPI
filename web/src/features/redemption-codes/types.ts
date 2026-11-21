@@ -26,6 +26,7 @@ export const redemptionSchema = z.object({
   id: z.number(),
   user_id: z.number(),
   name: z.string(),
+  group_id: z.number().optional(),
   key: z.string(),
   status: z.number(), // 1: enabled, 2: disabled, 3: used
   quota: z.number(),
@@ -36,6 +37,11 @@ export const redemptionSchema = z.object({
 })
 
 export type Redemption = z.infer<typeof redemptionSchema>
+
+export type RedemptionGroup = {
+  id: number
+  name: string
+}
 
 // ============================================================================
 // API Request/Response Types
@@ -50,6 +56,7 @@ export interface ApiResponse<T = unknown> {
 export interface GetRedemptionsParams {
   p?: number
   page_size?: number
+  group_id?: number
 }
 
 export interface GetRedemptionsResponse {
@@ -63,11 +70,9 @@ export interface GetRedemptionsResponse {
   }
 }
 
-export interface SearchRedemptionsParams {
+export interface SearchRedemptionsParams extends GetRedemptionsParams {
   keyword?: string
   status?: string
-  p?: number
-  page_size?: number
 }
 
 export interface RedemptionFormData {
@@ -77,6 +82,7 @@ export interface RedemptionFormData {
   expired_time: number
   count?: number // Only for create
   status?: number // Only for status update
+  group_id?: number // Only for create
 }
 
 // ============================================================================

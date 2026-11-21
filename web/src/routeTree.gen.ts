@@ -12,7 +12,11 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as authRouteRouteImport } from './routes/(auth)/route'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as CatalogRouteImport } from './routes/catalog'
+import { Route as HomeRouteImport } from './routes/home'
 import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
+import { Route as SurveyRouteImport } from './routes/survey'
+import { Route as SurveySummaryRouteImport } from './routes/survey-summary'
 import { Route as UserAgreementRouteImport } from './routes/user-agreement'
 import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
 import { Route as authOauthRouteImport } from './routes/(auth)/oauth'
@@ -28,7 +32,9 @@ import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
 import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
+import { Route as AuthenticatedWechatOfficialAccountRouteImport } from './routes/_authenticated/wechat-official-account'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
+import { Route as KeyUsageLookupIdRouteImport } from './routes/key-usage.$lookupId'
 import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
 import { Route as PricingIndexRouteImport } from './routes/pricing/index'
 import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
@@ -88,9 +94,29 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CatalogRoute = CatalogRouteImport.update({
+  id: '/catalog',
+  path: '/catalog',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HomeRoute = HomeRouteImport.update({
+  id: '/home',
+  path: '/home',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PrivacyPolicyRoute = PrivacyPolicyRouteImport.update({
   id: '/privacy-policy',
   path: '/privacy-policy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SurveyRoute = SurveyRouteImport.update({
+  id: '/survey',
+  path: '/survey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SurveySummaryRoute = SurveySummaryRouteImport.update({
+  id: '/survey-summary',
+  path: '/survey-summary',
   getParentRoute: () => rootRouteImport,
 } as any)
 const UserAgreementRoute = UserAgreementRouteImport.update({
@@ -169,9 +195,20 @@ const AuthenticatedSystemSettingsRouteRoute =
     path: '/system-settings',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedWechatOfficialAccountRoute =
+  AuthenticatedWechatOfficialAccountRouteImport.update({
+    id: '/wechat-official-account',
+    path: '/wechat-official-account',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AboutIndexRoute = AboutIndexRouteImport.update({
   id: '/about/',
   path: '/about/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KeyUsageLookupIdRoute = KeyUsageLookupIdRouteImport.update({
+  id: '/key-usage/$lookupId',
+  path: '/key-usage/$lookupId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OauthProviderRoute = OauthProviderRouteImport.update({
@@ -438,7 +475,11 @@ const AuthenticatedOauthPluginKeyCallbackRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/catalog': typeof CatalogRoute
+  '/home': typeof HomeRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/survey': typeof SurveyRoute
+  '/survey-summary': typeof SurveySummaryRoute
   '/user-agreement': typeof UserAgreementRoute
   '/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/forgot-password': typeof authForgotPasswordRoute
@@ -454,6 +495,8 @@ export interface FileRoutesByFullPath {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
+  '/wechat-official-account': typeof AuthenticatedWechatOfficialAccountRoute
+  '/key-usage/$lookupId': typeof KeyUsageLookupIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/about/': typeof AboutIndexRoute
   '/pricing/': typeof PricingIndexRoute
@@ -503,7 +546,11 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/catalog': typeof CatalogRoute
+  '/home': typeof HomeRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/survey': typeof SurveyRoute
+  '/survey-summary': typeof SurveySummaryRoute
   '/user-agreement': typeof UserAgreementRoute
   '/forgot-password': typeof authForgotPasswordRoute
   '/oauth': typeof authOauthRoute
@@ -518,6 +565,8 @@ export interface FileRoutesByTo {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
+  '/wechat-official-account': typeof AuthenticatedWechatOfficialAccountRoute
+  '/key-usage/$lookupId': typeof KeyUsageLookupIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/about': typeof AboutIndexRoute
   '/pricing': typeof PricingIndexRoute
@@ -570,7 +619,11 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/(auth)': typeof authRouteRouteWithChildren
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/catalog': typeof CatalogRoute
+  '/home': typeof HomeRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/survey': typeof SurveyRoute
+  '/survey-summary': typeof SurveySummaryRoute
   '/user-agreement': typeof UserAgreementRoute
   '/_authenticated/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/(auth)/forgot-password': typeof authForgotPasswordRoute
@@ -586,6 +639,8 @@ export interface FileRoutesById {
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
   '/_authenticated/chat2link': typeof AuthenticatedChat2linkRoute
+  '/_authenticated/wechat-official-account': typeof AuthenticatedWechatOfficialAccountRoute
+  '/key-usage/$lookupId': typeof KeyUsageLookupIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/about/': typeof AboutIndexRoute
   '/pricing/': typeof PricingIndexRoute
@@ -637,7 +692,11 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/catalog'
+    | '/home'
     | '/privacy-policy'
+    | '/survey'
+    | '/survey-summary'
     | '/user-agreement'
     | '/system-settings'
     | '/forgot-password'
@@ -653,6 +712,8 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/chat2link'
+    | '/wechat-official-account'
+    | '/key-usage/$lookupId'
     | '/oauth/$provider'
     | '/about/'
     | '/pricing/'
@@ -702,7 +763,11 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/catalog'
+    | '/home'
     | '/privacy-policy'
+    | '/survey'
+    | '/survey-summary'
     | '/user-agreement'
     | '/forgot-password'
     | '/oauth'
@@ -717,6 +782,8 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/chat2link'
+    | '/wechat-official-account'
+    | '/key-usage/$lookupId'
     | '/oauth/$provider'
     | '/about'
     | '/pricing'
@@ -768,7 +835,11 @@ export interface FileRouteTypes {
     | '/'
     | '/(auth)'
     | '/_authenticated'
+    | '/catalog'
+    | '/home'
     | '/privacy-policy'
+    | '/survey'
+    | '/survey-summary'
     | '/user-agreement'
     | '/_authenticated/system-settings'
     | '/(auth)/forgot-password'
@@ -784,6 +855,8 @@ export interface FileRouteTypes {
     | '/(errors)/500'
     | '/(errors)/503'
     | '/_authenticated/chat2link'
+    | '/_authenticated/wechat-official-account'
+    | '/key-usage/$lookupId'
     | '/oauth/$provider'
     | '/about/'
     | '/pricing/'
@@ -836,13 +909,18 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   authRouteRoute: typeof authRouteRouteWithChildren
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  CatalogRoute: typeof CatalogRoute
+  HomeRoute: typeof HomeRoute
   PrivacyPolicyRoute: typeof PrivacyPolicyRoute
+  SurveyRoute: typeof SurveyRoute
+  SurveySummaryRoute: typeof SurveySummaryRoute
   UserAgreementRoute: typeof UserAgreementRoute
   errors401Route: typeof errors401Route
   errors403Route: typeof errors403Route
   errors404Route: typeof errors404Route
   errors500Route: typeof errors500Route
   errors503Route: typeof errors503Route
+  KeyUsageLookupIdRoute: typeof KeyUsageLookupIdRoute
   OauthProviderRoute: typeof OauthProviderRoute
   AboutIndexRoute: typeof AboutIndexRoute
   PricingIndexRoute: typeof PricingIndexRoute
@@ -874,11 +952,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/catalog': {
+      id: '/catalog'
+      path: '/catalog'
+      fullPath: '/catalog'
+      preLoaderRoute: typeof CatalogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/home': {
+      id: '/home'
+      path: '/home'
+      fullPath: '/home'
+      preLoaderRoute: typeof HomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/privacy-policy': {
       id: '/privacy-policy'
       path: '/privacy-policy'
       fullPath: '/privacy-policy'
       preLoaderRoute: typeof PrivacyPolicyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/survey': {
+      id: '/survey'
+      path: '/survey'
+      fullPath: '/survey'
+      preLoaderRoute: typeof SurveyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/survey-summary': {
+      id: '/survey-summary'
+      path: '/survey-summary'
+      fullPath: '/survey-summary'
+      preLoaderRoute: typeof SurveySummaryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/user-agreement': {
@@ -986,11 +1092,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSystemSettingsRouteRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/wechat-official-account': {
+      id: '/_authenticated/wechat-official-account'
+      path: '/wechat-official-account'
+      fullPath: '/wechat-official-account'
+      preLoaderRoute: typeof AuthenticatedWechatOfficialAccountRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/about/': {
       id: '/about/'
       path: '/about'
       fullPath: '/about/'
       preLoaderRoute: typeof AboutIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/key-usage/$lookupId': {
+      id: '/key-usage/$lookupId'
+      path: '/key-usage/$lookupId'
+      fullPath: '/key-usage/$lookupId'
+      preLoaderRoute: typeof KeyUsageLookupIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/oauth/$provider': {
@@ -1403,6 +1523,7 @@ const AuthenticatedSystemSettingsRouteRouteWithChildren =
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
+  AuthenticatedWechatOfficialAccountRoute: typeof AuthenticatedWechatOfficialAccountRoute
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
@@ -1431,6 +1552,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,
   AuthenticatedChat2linkRoute: AuthenticatedChat2linkRoute,
+  AuthenticatedWechatOfficialAccountRoute:
+    AuthenticatedWechatOfficialAccountRoute,
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
@@ -1465,13 +1588,18 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   authRouteRoute: authRouteRouteWithChildren,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  CatalogRoute: CatalogRoute,
+  HomeRoute: HomeRoute,
   PrivacyPolicyRoute: PrivacyPolicyRoute,
+  SurveyRoute: SurveyRoute,
+  SurveySummaryRoute: SurveySummaryRoute,
   UserAgreementRoute: UserAgreementRoute,
   errors401Route: errors401Route,
   errors403Route: errors403Route,
   errors404Route: errors404Route,
   errors500Route: errors500Route,
   errors503Route: errors503Route,
+  KeyUsageLookupIdRoute: KeyUsageLookupIdRoute,
   OauthProviderRoute: OauthProviderRoute,
   AboutIndexRoute: AboutIndexRoute,
   PricingIndexRoute: PricingIndexRoute,

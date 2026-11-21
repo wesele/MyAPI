@@ -98,3 +98,6 @@ channel.upstream_update_failed_channels: "失敗管道 ID（顯示 {{.Shown}}/{{
 channel.upstream_update_more_omitted: "（其餘 {{.Count}} 個已省略）"
 
 channel.notify_scheduled_subject: "渠道「{{.Name}}」(#{{.Id}}) 外掛通知"
+
+wechat.redemption_issued: "感謝關注！你的兌換碼：{{.Code}}"
+wechat.redemption_unavailable: "感謝關注！兌換碼暫時發完了。"

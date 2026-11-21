@@ -98,3 +98,6 @@ channel.upstream_update_failed_channels: "失败渠道 ID（展示 {{.Shown}}/{{
 channel.upstream_update_more_omitted: "（其余 {{.Count}} 个已省略）"
 
 channel.notify_scheduled_subject: "渠道“{{.Name}}” (#{{.Id}}) 插件通知"
+
+wechat.redemption_issued: "感谢关注！你的兑换码：{{.Code}}"
+wechat.redemption_unavailable: "感谢关注！兑换码暂时发完了。"

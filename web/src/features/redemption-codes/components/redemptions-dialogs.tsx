@@ -16,11 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { RedemptionGroup } from '../types'
 import { RedemptionsDeleteDialog } from './redemptions-delete-dialog'
 import { RedemptionsMutateDrawer } from './redemptions-mutate-drawer'
 import { useRedemptions } from './redemptions-provider'
 
-export function RedemptionsDialogs() {
+export function RedemptionsDialogs(props: {
+  groups: RedemptionGroup[]
+  groupId?: number
+}) {
   const { open, setOpen, currentRow } = useRedemptions()
   const isUpdate = open === 'update'
 
@@ -30,6 +34,8 @@ export function RedemptionsDialogs() {
         open={open === 'create' || isUpdate}
         onOpenChange={(isOpen) => !isOpen && setOpen(null)}
         currentRow={isUpdate ? currentRow || undefined : undefined}
+        groups={props.groups}
+        groupId={props.groupId}
       />
       <RedemptionsDeleteDialog />
     </>

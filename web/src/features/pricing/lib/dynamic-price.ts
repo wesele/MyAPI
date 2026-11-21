@@ -61,6 +61,7 @@ export type DynamicPriceOptions = {
   groupRatioMultiplier?: number
   usageSchema?: BillingUsageSchema
   now?: Date
+  formatAmount?: (usd: number) => string
 }
 
 export type DynamicPriceLabelKind = 'i18n' | 'schema'
@@ -222,6 +223,7 @@ export function formatDynamicUnitPrice(
     usdExchangeRate
   )
 
+  if (options.formatAmount) return options.formatAmount(displayPrice)
   return formatBillingCurrencyFromUSD(displayPrice, {
     showSymbol: options.showCurrencySymbol ?? true,
     digitsLarge: 4,
@@ -245,6 +247,7 @@ export function formatTaskUsageUnitPrice(
     usdExchangeRate
   )
 
+  if (options.formatAmount) return options.formatAmount(displayPrice)
   return formatBillingCurrencyFromUSD(displayPrice, {
     showSymbol: options.showCurrencySymbol ?? true,
     digitsLarge: 4,

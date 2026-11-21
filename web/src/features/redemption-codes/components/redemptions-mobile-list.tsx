@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next'
 import { DISABLED_ROW_MOBILE } from '@/components/data-table'
 import { MaskedValueDisplay } from '@/components/masked-value-display'
 import { StatusBadge } from '@/components/status-badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Empty,
   EmptyDescription,
@@ -73,6 +74,7 @@ function RedemptionsMobileSkeleton() {
 interface RedemptionsMobileListProps {
   table: TanstackTable<Redemption>
   isLoading: boolean
+  groupNames: ReadonlyMap<number, string>
 }
 
 export function RedemptionsMobileList(props: RedemptionsMobileListProps) {
@@ -123,12 +125,21 @@ export function RedemptionsMobileList(props: RedemptionsMobileListProps) {
             )}
           >
             <div className='flex items-start justify-between gap-3'>
-              <div className='min-w-0'>
-                <div className='truncate text-sm font-semibold'>
-                  {redemption.name}
-                </div>
-                <div className='text-muted-foreground text-[11px]'>
-                  {t('Redemption Code')}
+              <div className='flex min-w-0 items-start gap-2'>
+                <Checkbox
+                  checked={row.getIsSelected()}
+                  onCheckedChange={(checked) => row.toggleSelected(!!checked)}
+                  aria-label={t('Select row')}
+                />
+                <div className='min-w-0'>
+                  <div className='truncate text-sm font-semibold'>
+                    {redemption.name}
+                  </div>
+                  <div className='text-muted-foreground truncate text-xs'>
+                    {redemption.group_id
+                      ? props.groupNames.get(redemption.group_id)
+                      : t('Ungrouped')}
+                  </div>
                 </div>
               </div>
               {expired ? (

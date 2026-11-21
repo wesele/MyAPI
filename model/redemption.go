@@ -16,6 +16,7 @@ type Redemption struct {
 	Key          string         `json:"key" gorm:"type:char(32);uniqueIndex"`
 	Status       int            `json:"status" gorm:"default:1"`
 	Name         string         `json:"name" gorm:"index"`
+	GroupId      int            `json:"group_id" gorm:"not null;default:0;index"`
 	Quota        int            `json:"quota" gorm:"default:100"`
 	CreatedTime  int64          `json:"created_time" gorm:"bigint"`
 	RedeemedTime int64          `json:"redeemed_time" gorm:"bigint"`
@@ -60,6 +61,10 @@ func GetAllRedemptions(startIdx int, num int) (redemptions []*Redemption, total 
 }
 
 func SearchRedemptions(keyword string, status string, startIdx int, num int) (redemptions []*Redemption, total int64, err error) {
+	return SearchRedemptionsInGroup(keyword, status, nil, startIdx, num)
+}
+
+func SearchRedemptionsInGroup(keyword, status string, groupId *int, startIdx, num int) (redemptions []*Redemption, total int64, err error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -71,10 +76,13 @@ func SearchRedemptions(keyword string, status string, startIdx int, num int) (re
 	}()
 
 	query := tx.Model(&Redemption{})
+	if groupId != nil {
+		query = query.Where("group_id = ?", *groupId)
+	}
 
 	if keyword != "" {
 		if id, err := strconv.Atoi(keyword); err == nil {
-			query = query.Where("id = ? OR name LIKE ?", id, keyword+"%")
+			query = query.Where("(id = ? OR name LIKE ?)", id, keyword+"%")
 		} else {
 			query = query.Where("name LIKE ?", keyword+"%")
 		}
@@ -185,16 +193,18 @@ func Redeem(key string, userId int) (quota int, err error) {
 	return redemption.Quota, nil
 }
 
-func (redemption *Redemption) Insert() error {
+func (redemption *Redemption) validateQuota() error {
 	if redemption.Quota <= 0 {
 		return errors.New("redemption quota must be positive")
 	}
-	if err := common.ValidateWalletQuota(redemption.Quota); err != nil {
+	return common.ValidateWalletQuota(redemption.Quota)
+}
+
+func (redemption *Redemption) Insert() error {
+	if err := redemption.validateQuota(); err != nil {
 		return err
 	}
-	var err error
-	err = DB.Create(redemption).Error
-	return err
+	return DB.Create(redemption).Error
 }
 
 func (redemption *Redemption) SelectUpdate() error {
@@ -202,17 +212,19 @@ func (redemption *Redemption) SelectUpdate() error {
 	return DB.Model(redemption).Select("redeemed_time", "status").Updates(redemption).Error
 }
 
-// Update Make sure your token's fields is completed, because this will update non-zero values
+// Update changes editable details without writing the status read by the editor.
 func (redemption *Redemption) Update() error {
-	if redemption.Quota <= 0 {
-		return errors.New("redemption quota must be positive")
-	}
-	if err := common.ValidateWalletQuota(redemption.Quota); err != nil {
+	if err := redemption.validateQuota(); err != nil {
 		return err
 	}
-	var err error
-	err = DB.Model(redemption).Select("name", "status", "quota", "redeemed_time", "expired_time").Updates(redemption).Error
-	return err
+	return DB.Model(redemption).Select("name", "quota", "expired_time").Updates(redemption).Error
+}
+
+func (redemption *Redemption) UpdateStatus() error {
+	if err := redemption.validateQuota(); err != nil {
+		return err
+	}
+	return DB.Model(redemption).Update("status", redemption.Status).Error
 }
 
 func (redemption *Redemption) Delete() error {

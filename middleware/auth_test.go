@@ -2,11 +2,14 @@ package middleware
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +24,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/chacha20poly1305"
 	"gorm.io/gorm"
 )
 
@@ -664,4 +668,97 @@ func TestApplyWebSocketSubprotocolAuthorizationReadsRepeatedHeaders(t *testing.T
 
 	assert.True(t, applyWebSocketSubprotocolAuthorization(header))
 	assert.Equal(t, "Bearer sk-later-field", header.Get("Authorization"))
+}
+func TestSharedUsageSessionChecksScopeExpiryAndCurrentAccess(t *testing.T) {
+	setupDashboardAuthMiddlewareTest(t)
+	require.NoError(t, i18n.Init())
+	sqlitePath, master := common.SQLitePath, common.IsMasterNode
+	t.Setenv("SQL_DSN", "")
+	t.Setenv("LOG_SQL_DSN", "")
+	common.SQLitePath = filepath.Join(t.TempDir(), "shared-usage.db")
+	common.IsMasterNode = true
+	t.Cleanup(func() {
+		common.SQLitePath, common.IsMasterNode = sqlitePath, master
+	})
+	require.NoError(t, model.InitDB())
+	db, err := model.DB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	user := createMiddlewarePATUser(t, "shared-usage", strings.Repeat("p", 48))
+	token := model.Token{
+		UserId: user.Id, Key: strings.Repeat("k", 48),
+		Status: common.TokenStatusEnabled, ExpiredTime: -1,
+	}
+	require.NoError(t, model.DB.Create(&token).Error)
+	router := gin.New()
+	router.POST("/api/shared/usage", SharedPortalRequest, TokenAuthReadOnly(), StartSharedUsage)
+	router.GET("/api/shared/usage/:id/totals", SharedPortalRequest, ResumeSharedUsage, TokenAuthReadOnly(), func(c *gin.Context) {
+		assert.Equal(t, token.Id, c.GetInt("token_id"))
+		c.Status(http.StatusNoContent)
+	})
+
+	request := func(method, path, site, key string, cookie *http.Cookie) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, "https://shared.example"+path, nil)
+		req.Header.Set("X-Shared-Portal", "1")
+		req.Header.Set("Sec-Fetch-Site", site)
+		if key != "" {
+			req.Header.Set("Authorization", "Bearer sk-"+key)
+		}
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		return response
+	}
+	base := "/api/shared/usage"
+	assert.Equal(t, http.StatusForbidden, request(http.MethodPost, base, "cross-site", token.Key, nil).Code)
+	assert.Equal(t, http.StatusUnauthorized, request(http.MethodPost, base, "same-origin", token.Key+"-suffix", nil).Code)
+	assert.Equal(t, http.StatusUnauthorized, request(http.MethodPost, base, "same-origin", strings.Repeat("x", 48), nil).Code)
+	start := request(http.MethodPost, base, "same-origin", token.Key, nil)
+	require.Equal(t, http.StatusOK, start.Code)
+	var body struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, common.Unmarshal(start.Body.Bytes(), &body))
+	require.Len(t, start.Result().Cookies(), 1)
+	cookie := start.Result().Cookies()[0]
+	path := base + "/" + body.ID
+	assert.True(t, cookie.HttpOnly)
+	assert.True(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteStrictMode, cookie.SameSite)
+	assert.Equal(t, 1800, cookie.MaxAge)
+	assert.Equal(t, path+"/", cookie.Path)
+	assert.NotContains(t, cookie.Value, token.Key)
+	assert.Equal(t, http.StatusUnauthorized, request(http.MethodGet, path+"/totals", "same-origin", "", nil).Code)
+	assert.Equal(t, http.StatusForbidden, request(http.MethodGet, path+"/totals", "same-site", "", cookie).Code)
+	other := base + "/" + strings.Repeat("Z", 26) + "/totals"
+	assert.Equal(t, http.StatusUnauthorized, request(http.MethodGet, other, "same-origin", "", cookie).Code)
+	tampered := *cookie
+	tampered.Value = "AAA" + cookie.Value
+	assert.Equal(t, http.StatusUnauthorized, request(http.MethodGet, path+"/totals", "same-origin", "", &tampered).Code)
+	assert.Equal(t, http.StatusNoContent, request(http.MethodGet, path+"/totals", "same-origin", "", cookie).Code)
+
+	// Construct a correctly authenticated cookie that has already expired.
+	raw, err := base64.RawURLEncoding.DecodeString(cookie.Value)
+	require.NoError(t, err)
+	secret := sha256.Sum256([]byte("shared-api-key-usage:" + common.SessionSecret))
+	cipher, err := chacha20poly1305.NewX(secret[:])
+	require.NoError(t, err)
+	payload, err := cipher.Open(nil, raw[:chacha20poly1305.NonceSizeX], raw[chacha20poly1305.NonceSizeX:], []byte(body.ID))
+	require.NoError(t, err)
+	var session usageSession
+	require.NoError(t, common.Unmarshal(payload, &session))
+	session.Expires = time.Now().Add(-time.Second).Unix()
+	payload, err = common.Marshal(session)
+	require.NoError(t, err)
+	expired := *cookie
+	var nonce [chacha20poly1305.NonceSizeX]byte
+	rand.Read(nonce[:])
+	expired.Value = base64.RawURLEncoding.EncodeToString(cipher.Seal(nonce[:], nonce[:], payload, []byte(body.ID)))
+	assert.Equal(t, http.StatusUnauthorized, request(http.MethodGet, path+"/totals", "same-origin", "", &expired).Code)
+
+	require.NoError(t, model.DB.Model(&token).Update("status", common.TokenStatusDisabled).Error)
+	assert.Equal(t, http.StatusUnauthorized, request(http.MethodGet, path+"/totals", "same-origin", "", cookie).Code)
 }

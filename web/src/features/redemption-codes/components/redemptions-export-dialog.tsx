@@ -25,6 +25,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 
+import { downloadRedemptionFile } from '../lib/utils'
+
 export type RedemptionExportData = {
   keys: string[]
   name: string
@@ -85,14 +87,7 @@ export function RedemptionsExportDialog(props: RedemptionsExportDialogProps) {
           ? 'text/markdown;charset=utf-8'
           : 'text/plain;charset=utf-8',
     })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `redemption-codes-${Date.now()}.${format}`
-    document.body.append(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
+    downloadRedemptionFile(blob, `redemption-codes-${Date.now()}.${format}`)
     props.onClose()
   }
 

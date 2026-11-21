@@ -42,6 +42,7 @@ export type ModelPriceCellOptions = {
   usdExchangeRate?: number
   showRechargePrice?: boolean
   selectedGroup?: string
+  formatAmount?: (usd: number) => string
 }
 
 export function ModelPriceCell(props: {
@@ -52,9 +53,10 @@ export function ModelPriceCell(props: {
   const { t, i18n } = useTranslation()
   const model = useMemo(() => withBasePricing(props.model), [props.model])
   const currency = useSystemConfigStore((state) => state.config.currency)
-  const currencyLabel =
-    currency.quotaDisplayType === 'TOKENS' ? 'USD' : getCurrencyLabel()
   const options = props.options ?? {}
+  let currencyLabel =
+    currency.quotaDisplayType === 'TOKENS' ? 'USD' : getCurrencyLabel()
+  if (options.formatAmount) currencyLabel = 'USD / CNY'
   const tokenUnit = options.tokenUnit ?? DEFAULT_TOKEN_UNIT
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
   const billingTime = useBillingTime(model.billing_expr)
@@ -67,6 +69,7 @@ export function ModelPriceCell(props: {
         now: billingTime === undefined ? undefined : new Date(billingTime),
         tokenUnit,
         showCurrencySymbol: false,
+        formatAmount: options.formatAmount,
         groupRatioMultiplier: getDynamicDisplayGroupRatio(
           model,
           options.selectedGroup
@@ -81,6 +84,7 @@ export function ModelPriceCell(props: {
       options.usdExchangeRate,
       options.showRechargePrice,
       options.selectedGroup,
+      options.formatAmount,
       billingTime,
       currency,
     ]
@@ -197,7 +201,8 @@ export function ModelPriceCell(props: {
             options.priceRate,
             options.usdExchangeRate,
             options.selectedGroup,
-            false
+            false,
+            options.formatAmount
           ),
         },
         {
@@ -210,7 +215,8 @@ export function ModelPriceCell(props: {
             options.priceRate,
             options.usdExchangeRate,
             options.selectedGroup,
-            false
+            false,
+            options.formatAmount
           ),
         },
       ]
@@ -224,7 +230,8 @@ export function ModelPriceCell(props: {
             options.priceRate,
             options.usdExchangeRate,
             options.selectedGroup,
-            false
+            false,
+            options.formatAmount
           ),
         },
       ]

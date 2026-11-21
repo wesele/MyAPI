@@ -68,8 +68,7 @@ import {
 } from '@/features/model-pricing/api'
 import {
   getSitePricingCurrency,
-  isValidPricingCurrency,
-  USD_PRICING_CURRENCY,
+  getModelPricingCurrency,
 } from '@/features/model-pricing/currency'
 import { pricingFromDraft, pricingRow } from '@/features/model-pricing/pricing'
 import { PricingAmountInput } from '@/features/model-pricing/pricing-amount-input'
@@ -215,10 +214,7 @@ export const ModelPricingEditorPanel = forwardRef<
     () => getSitePricingCurrency(currencyConfig),
     [currencyConfig]
   )
-  const currency =
-    preference === 'site' && isValidPricingCurrency(siteCurrency)
-      ? siteCurrency
-      : USD_PRICING_CURRENCY
+  const currency = getModelPricingCurrency(currencyConfig, preference)
   const [pricingMode, setPricingMode] = useState<PricingMode>('tiered_expr')
   const [promptPrice, setPromptPrice] = useState('')
   const [lanePrices, setLanePrices] = useState<Record<LaneKey, string>>({
@@ -944,7 +940,10 @@ export const ModelPricingEditorPanel = forwardRef<
                   />
                 )}
 
-                <PricingCurrencySelector siteCurrency={siteCurrency} />
+                <PricingCurrencySelector
+                  siteCurrency={siteCurrency}
+                  usdExchangeRate={currencyConfig.usdExchangeRate}
+                />
 
                 <TaskPluginPricingEditor
                   key={`${editorReloadToken}:${watchedValues.name}`}

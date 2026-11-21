@@ -18,8 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute } from '@tanstack/react-router'
 
-import { Home } from '@/features/home'
+import { KeyUsagePage } from '@/features/key-usage'
 
 export const Route = createFileRoute('/')({
-  component: Home,
+  component: KeyUsagePage,
 })

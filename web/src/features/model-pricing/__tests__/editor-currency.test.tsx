@@ -756,7 +756,7 @@ it.each([0, -1, Infinity, Number.NaN, undefined])(
 )
 
 it.each(['USD', 'TOKENS'] as const)(
-  'offers only USD when the site uses %s',
+  'offers USD and CNY when the site uses %s',
   async (type) => {
     usePricingPreferencesStore.setState({ currency: 'site' })
     useSystemConfigStore.getState().setConfig({
@@ -766,9 +766,12 @@ it.each(['USD', 'TOKENS'] as const)(
     await userEvent.click(
       screen.getByRole('combobox', { name: 'Pricing currency' })
     )
-    expect(screen.getAllByRole('option')).toHaveLength(1)
+    expect(screen.getAllByRole('option')).toHaveLength(2)
     expect(
       screen.getByRole('option', { name: 'US dollar (USD)' })
+    ).toBeVisible()
+    expect(
+      screen.getByRole('option', { name: 'Chinese yuan (CNY)' })
     ).toBeVisible()
   }
 )

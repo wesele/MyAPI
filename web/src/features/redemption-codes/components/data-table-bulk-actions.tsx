@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation } from '@tanstack/react-query'
 import type { Table } from '@tanstack/react-table'
-import { Trash2 } from 'lucide-react'
+import { FolderInput, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -33,20 +33,28 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { handleServerError } from '@/lib/handle-server-error'
-import { createServerError } from '@/lib/server-error-message'
+import {
+  createServerError,
+  requireServerSuccess,
+} from '@/lib/server-error-message'
 
-import { batchDeleteRedemptions } from '../api'
-import type { Redemption } from '../types'
+import { batchDeleteRedemptions, moveRedemptionsToGroup } from '../api'
+import type { Redemption, RedemptionGroup } from '../types'
+import { RedemptionGroupSelect } from './redemption-group-select'
 import { useRedemptions } from './redemptions-provider'
 
 type DataTableBulkActionsProps = {
   table: Table<Redemption>
+  groups?: RedemptionGroup[]
+  groupId?: number
 }
 
 export function DataTableBulkActions(props: DataTableBulkActionsProps) {
   const { t } = useTranslation()
   const { triggerRefresh } = useRedemptions()
   const [deleteTargets, setDeleteTargets] = useState<Redemption[] | null>(null)
+  const [moveTargets, setMoveTargets] = useState<number[] | null>(null)
+  const [destination, setDestination] = useState<number>()
   const selectedRows = props.table.getFilteredSelectedRowModel().rows
 
   const contentToCopy = useMemo(() => {
@@ -86,6 +94,21 @@ export function DataTableBulkActions(props: DataTableBulkActionsProps) {
       )
     },
   })
+  const move = useMutation({
+    mutationFn: async (request: { targets: number[]; destination: number }) =>
+      requireServerSuccess(
+        await moveRedemptionsToGroup(request.targets, request.destination)
+      ),
+    onSuccess: (_, request) => {
+      setMoveTargets(null)
+      props.table.setRowSelection((previous) => {
+        const next = { ...previous }
+        for (const id of request.targets) delete next[String(id)]
+        return next
+      })
+      triggerRefresh()
+    },
+  })
 
   return (
     <>
@@ -99,6 +122,27 @@ export function DataTableBulkActions(props: DataTableBulkActionsProps) {
           successTooltip={t('Codes copied!')}
           aria-label={t('Copy selected codes')}
         />
+        {props.groups && props.groups.length > 0 && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant='outline'
+                  size='icon'
+                  className='size-8'
+                  aria-label={t('Move to Group')}
+                  onClick={() => {
+                    setDestination(undefined)
+                    setMoveTargets(selectedRows.map((row) => row.original.id))
+                  }}
+                />
+              }
+            >
+              <FolderInput aria-hidden='true' />
+            </TooltipTrigger>
+            <TooltipContent>{t('Move to Group')}</TooltipContent>
+          </Tooltip>
+        )}
         <Tooltip>
           <TooltipTrigger
             render={
@@ -121,6 +165,37 @@ export function DataTableBulkActions(props: DataTableBulkActionsProps) {
           </TooltipContent>
         </Tooltip>
       </BulkActionsToolbar>
+      <ConfirmDialog
+        open={moveTargets !== null}
+        onOpenChange={(open) => {
+          if (!open && !move.isPending) setMoveTargets(null)
+        }}
+        title={t('Move to Group')}
+        desc={t('Select a group')}
+        confirmText={t('Move')}
+        disabled={
+          !moveTargets?.length ||
+          destination === undefined ||
+          destination === props.groupId
+        }
+        isLoading={move.isPending}
+        handleConfirm={() => {
+          if (
+            moveTargets?.length &&
+            destination !== undefined &&
+            !move.isPending
+          ) {
+            move.mutate({ targets: moveTargets, destination })
+          }
+        }}
+      >
+        <RedemptionGroupSelect
+          groups={props.groups ?? []}
+          value={destination}
+          onChange={setDestination}
+          disabled={move.isPending}
+        />
+      </ConfirmDialog>
       <ConfirmDialog
         destructive
         open={deleteTargets !== null}

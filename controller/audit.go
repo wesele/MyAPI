@@ -67,8 +67,11 @@ var auditContentTemplates = map[string]string{
 	"channel.upstream_apply":     "Applied upstream model changes to channel (ID: ${id})",
 	"channel.upstream_apply_all": "Applied upstream model changes to ${count} channels",
 
-	"redemption.create":       "Created ${count} redemption codes named ${name} (${quota} each)",
-	"redemption.delete_batch": "Batch deleted ${count} redemption codes",
+	"redemption.create":              "Created ${count} redemption codes named ${name} (${quota} each)",
+	"redemption.delete_batch":        "Batch deleted ${count} redemption codes",
+	"redemption.disable_all":         "Disabled ${count} redemption codes",
+	"redemption.group_disable":       "Disabled ${count} redemption codes in group ${group_id}",
+	"wechat_official_account.update": "Updated WeChat Official Account settings",
 
 	"subscription.plan_reset":       "Reset active subscriptions for plan ${plan_id}",
 	"subscription.user_plan_reset":  "Reset active plan ${plan_id} subscriptions for user ${target_user_id}",

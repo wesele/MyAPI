@@ -15,6 +15,10 @@ import (
 )
 
 func SetApiRouter(router *gin.Engine) {
+	wechatCallback := router.Group("/wechat", middleware.RouteTag("api"), middleware.DisableCache())
+	wechatCallback.GET("", controller.HandleWeChatOfficialAccount)
+	wechatCallback.POST("", controller.HandleWeChatOfficialAccount)
+
 	apiRouter := router.Group("/api")
 	apiRouter.Use(middleware.RouteTag("api"))
 	apiRouter.Use(gzip.Gzip(gzip.DefaultCompression))
@@ -23,6 +27,10 @@ func SetApiRouter(router *gin.Engine) {
 	apiRouter.Use(middleware.GlobalAPIRateLimit())
 	anonymousRequestBodyLimit := middleware.AnonymousRequestBodyLimit()
 	{
+		wechatSettings := apiRouter.Group("/wechat-official-account", middleware.DisableCache(), middleware.AdminAuth())
+		wechatSettings.GET("", controller.GetWeChatOfficialAccountSettings)
+		wechatSettings.PUT("", controller.UpdateWeChatOfficialAccountSettings)
+
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", anonymousRequestBodyLimit, controller.PostSetup)
 		apiRouter.GET("/status", controller.GetStatus)
@@ -36,6 +44,16 @@ func SetApiRouter(router *gin.Engine) {
 		//apiRouter.GET("/midjourney", controller.GetMidjourney)
 		apiRouter.GET("/home_page_content", controller.GetHomePageContent)
 		apiRouter.GET("/pricing", middleware.HeaderNavModuleAuth("pricing"), controller.GetPricing)
+		sharedPortal := apiRouter.Group("/shared", middleware.DisableCache(), middleware.SharedPortalRequest)
+		sharedPortal.POST("/usage", middleware.CriticalRateLimit(), middleware.TokenAuthReadOnly(), middleware.StartSharedUsage)
+		sharedUsage := sharedPortal.Group("/usage/:id", middleware.CriticalRateLimit(), middleware.ResumeSharedUsage, middleware.TokenAuthReadOnly())
+		sharedUsage.GET("/totals", controller.GetTokenUsage)
+		sharedUsage.GET("/logs", controller.GetLogByKey)
+		sharedPortal.GET("/reference-prices", controller.GetSharedReferencePrices)
+		sharedPortal.GET("/survey", controller.GetSubscriptionInterest)
+		sharedPortal.PUT("/survey", middleware.CriticalRateLimit(), controller.SaveSubscriptionInterest)
+		sharedPortal.GET("/survey/results", controller.GetSubscriptionInterestSummary)
+		sharedPortal.GET("/survey/summary", middleware.RootAuth(), controller.GetSubscriptionInterestSummary)
 		perfMetricsRoute := apiRouter.Group("/perf-metrics")
 		perfMetricsRoute.Use(middleware.HeaderNavModulePublicOrUserAuth("pricing"))
 		{
@@ -309,7 +327,7 @@ func SetApiRouter(router *gin.Engine) {
 		usageRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
 			tokenUsageRoute := usageRoute.Group("/token")
-			tokenUsageRoute.Use(middleware.TokenAuthReadOnly())
+			tokenUsageRoute.Use(middleware.DisableCache(), middleware.TokenAuthReadOnly())
 			{
 				tokenUsageRoute.GET("/", controller.GetTokenUsage)
 			}
@@ -320,6 +338,13 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			redemptionRoute.GET("/", controller.GetAllRedemptions)
 			redemptionRoute.GET("/search", controller.SearchRedemptions)
+			redemptionRoute.GET("/groups", controller.ListRedemptionGroups)
+			redemptionRoute.POST("/groups", controller.CreateRedemptionGroup)
+			redemptionRoute.GET("/groups/:group_id/download", middleware.DisableCache(), controller.DownloadRedemptionGroupCodes)
+			redemptionRoute.POST("/groups/:group_id/disable", controller.DisableRedemptionGroupCodes)
+			redemptionRoute.PUT("/groups/:group_id", controller.RenameRedemptionGroup)
+			redemptionRoute.DELETE("/groups/:group_id", controller.DeleteRedemptionGroup)
+			redemptionRoute.PUT("/groups/members", controller.MoveRedemptionGroupMembers)
 			redemptionRoute.GET("/:id", controller.GetRedemption)
 			redemptionRoute.POST("/", controller.AddRedemption)
 			redemptionRoute.POST("/batch", controller.DeleteRedemptionBatch)
@@ -367,7 +392,7 @@ func SetApiRouter(router *gin.Engine) {
 
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
-			logRoute.GET("/token", middleware.TokenAuthReadOnly(), controller.GetLogByKey)
+			logRoute.GET("/token", middleware.DisableCache(), middleware.TokenAuthReadOnly(), controller.GetLogByKey)
 		}
 		groupRoute := apiRouter.Group("/group")
 		groupRoute.Use(middleware.AdminAuth())

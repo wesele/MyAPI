@@ -25,6 +25,7 @@ import { PaymentSettingsSection } from '../integrations/payment-settings-section
 import { RatioSettingsCard } from '../models/ratio-settings-card'
 import type { BillingSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { ReferencePricesSection } from './reference-prices-section'
 
 const getModelDefaults = (settings: BillingSettings) => ({
   ModelPrice: settings.ModelPrice,
@@ -127,6 +128,11 @@ const BILLING_SECTIONS = [
         visibleTabs={['groups']}
       />
     ),
+  },
+  {
+    id: 'reference-prices',
+    titleKey: 'Official reference prices',
+    build: () => <ReferencePricesSection />,
   },
   {
     id: 'payment',

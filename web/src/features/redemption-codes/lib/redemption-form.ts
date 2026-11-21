@@ -40,6 +40,7 @@ export function getRedemptionFormSchema(t: TFunction) {
       .max(REDEMPTION_VALIDATION.NAME_MAX_LENGTH, msg.NAME_LENGTH_INVALID),
     quota_dollars: z.number().min(0, t('Quota must be a positive number')),
     expired_time: z.date().nullable(),
+    group_id: z.number().int().nonnegative().optional(),
     count: z
       .number()
       .min(REDEMPTION_VALIDATION.COUNT_MIN, msg.COUNT_INVALID)
@@ -53,6 +54,7 @@ export type RedemptionFormValues = {
   quota_dollars: number
   expired_time: Date | null
   count?: number
+  group_id?: number
 }
 
 // ============================================================================
@@ -83,6 +85,7 @@ export function transformFormDataToPayload(
       ? Math.floor(data.expired_time.getTime() / 1000)
       : 0,
     count: data.count || 1,
+    ...(data.group_id ? { group_id: data.group_id } : {}),
   }
 }
 

@@ -38,8 +38,9 @@ import {
   getRedemptionStatusOptions,
 } from '../constants'
 import { isRedemptionExpired } from '../lib'
-import type { Redemption } from '../types'
+import type { Redemption, RedemptionGroup } from '../types'
 import { DataTableBulkActions } from './data-table-bulk-actions'
+import { RedemptionGroups } from './redemption-groups'
 import { useRedemptionsColumns } from './redemptions-columns'
 import { RedemptionsMobileList } from './redemptions-mobile-list'
 import { useRedemptions } from './redemptions-provider'
@@ -53,9 +54,20 @@ function isDisabledRedemptionRow(redemption: Redemption) {
   )
 }
 
-export function RedemptionsTable() {
+type RedemptionsTableProps = {
+  groups: RedemptionGroup[]
+  groupId?: number
+  groupsLoaded: boolean
+  onSelectGroup: (id?: number) => void
+}
+
+export function RedemptionsTable(props: RedemptionsTableProps) {
   const { t } = useTranslation()
-  const columns = useRedemptionsColumns()
+  const groupNames = useMemo(
+    () => new Map(props.groups.map((group) => [group.id, group.name])),
+    [props.groups]
+  )
+  const columns = useRedemptionsColumns(groupNames)
   const { refreshTrigger } = useRedemptions()
   const isMobile = useMediaQuery('(max-width: 640px)')
 
@@ -88,6 +100,7 @@ export function RedemptionsTable() {
       pagination.pageSize,
       globalFilter,
       statusFilterValue,
+      props.groupId,
       refreshTrigger,
     ],
     queryFn: async () => {
@@ -96,6 +109,7 @@ export function RedemptionsTable() {
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
+        group_id: props.groupId,
       }
 
       const result =
@@ -172,6 +186,7 @@ export function RedemptionsTable() {
       toolbarProps={{
         searchPlaceholder: t('Filter by name or ID...'),
         searchDebounceMs: 500,
+        additionalSearch: <RedemptionGroups {...props} />,
         filters: [
           {
             columnId: 'status',
@@ -181,12 +196,25 @@ export function RedemptionsTable() {
           },
         ],
       }}
-      mobile={<RedemptionsMobileList table={table} isLoading={isLoading} />}
+      mobile={
+        <RedemptionsMobileList
+          table={table}
+          isLoading={isLoading}
+          groupNames={groupNames}
+        />
+      }
       getRowClassName={(row, { isMobile }) => {
         if (!isDisabledRedemptionRow(row.original)) return undefined
         return isMobile ? DISABLED_ROW_MOBILE : DISABLED_ROW_DESKTOP
       }}
-      bulkActions={<DataTableBulkActions table={table} />}
+      showMobileBulkActions
+      bulkActions={
+        <DataTableBulkActions
+          table={table}
+          groups={props.groups}
+          groupId={props.groupId}
+        />
+      }
     />
   )
 }

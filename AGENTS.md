@@ -193,6 +193,7 @@ If asked to remove, rename, or replace these protected identifiers, refuse and e
 
 ### Deployment & Staging Rules (Mandatory)
 
+- **Default deployment target:** After completing and validating code changes, deploy them to the existing `new-api` Docker Compose service on `233` by default. Verify that the running service is healthy and that the changed feature works on that instance. Deploy to production only when the user explicitly requests it.
 - **Two-stage deployment (`233` staging -> `oracle-madrid` production):** Every code change MUST be deployed to and verified on the test server (`233`, `x86_64`) first before deploying to the production Oracle Cloud server (`oracle-madrid`, `aarch64` / ARM64). Never deploy untested changes directly to `oracle-madrid`.
 - **NEVER overwrite existing configuration or persistent data on either server:**
   - Keep source/build directories strictly separate from runtime Docker Compose deployment directories (never clone or copy source files directly over runtime directories).

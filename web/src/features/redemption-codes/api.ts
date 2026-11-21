@@ -25,6 +25,7 @@ import type {
   GetRedemptionsResponse,
   SearchRedemptionsParams,
   RedemptionFormData,
+  RedemptionGroup,
 } from './types'
 
 // ============================================================================
@@ -35,8 +36,10 @@ import type {
 export async function getRedemptions(
   params: GetRedemptionsParams = {}
 ): Promise<GetRedemptionsResponse> {
-  const { p = 1, page_size = 10 } = params
-  const res = await api.get(`/api/redemption/?p=${p}&page_size=${page_size}`)
+  const { p = 1, page_size = 10, group_id } = params
+  const res = await api.get('/api/redemption/', {
+    params: { p, page_size, group_id },
+  })
   return res.data
 }
 
@@ -44,10 +47,11 @@ export async function getRedemptions(
 export async function searchRedemptions(
   params: SearchRedemptionsParams
 ): Promise<GetRedemptionsResponse> {
-  const { keyword = '', status = '', p = 1, page_size = 10 } = params
+  const { keyword = '', status = '', p = 1, page_size = 10, group_id } = params
   const queryParams = new URLSearchParams()
   queryParams.set('keyword', keyword)
   if (status) queryParams.set('status', status)
+  if (group_id !== undefined) queryParams.set('group_id', String(group_id))
   queryParams.set('p', String(p))
   queryParams.set('page_size', String(page_size))
   const res = await api.get(`/api/redemption/search?${queryParams.toString()}`)
@@ -99,9 +103,57 @@ export async function deleteInvalidRedemptions(): Promise<ApiResponse<number>> {
   return res.data
 }
 
+export async function disableRedemptionGroupCodes(
+  groupId: number
+): Promise<ApiResponse<number>> {
+  const res = await api.post(`/api/redemption/groups/${groupId}/disable`)
+  return res.data
+}
+
 export async function batchDeleteRedemptions(
   ids: number[]
 ): Promise<ApiResponse<number>> {
   const res = await api.post('/api/redemption/batch', { ids })
+  return res.data
+}
+
+export const redemptionGroupsQueryKey = ['redemption-groups'] as const
+
+export async function getRedemptionGroups(): Promise<
+  ApiResponse<RedemptionGroup[]>
+> {
+  const res = await api.get('/api/redemption/groups')
+  return res.data
+}
+
+export async function saveRedemptionGroup(
+  name: string,
+  id?: number
+): Promise<ApiResponse<RedemptionGroup>> {
+  const res =
+    id === undefined
+      ? await api.post('/api/redemption/groups', { name })
+      : await api.put(`/api/redemption/groups/${id}`, { name })
+  return res.data
+}
+
+export async function deleteRedemptionGroup(id: number): Promise<ApiResponse> {
+  const res = await api.delete(`/api/redemption/groups/${id}`)
+  return res.data
+}
+
+export async function downloadRedemptionGroupCodes(id: number): Promise<Blob> {
+  const response = await api.get<Blob>(
+    `/api/redemption/groups/${id}/download`,
+    { responseType: 'blob' }
+  )
+  return response.data
+}
+
+export async function moveRedemptionsToGroup(
+  ids: number[],
+  group_id: number
+): Promise<ApiResponse> {
+  const res = await api.put('/api/redemption/groups/members', { ids, group_id })
   return res.data
 }

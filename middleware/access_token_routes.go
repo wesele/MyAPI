@@ -227,6 +227,10 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/token/batch":      accessTokenScopeRule("api_key:write"),
 	"POST /api/token/batch/keys": accessTokenScopeRule("api_key:reveal"),
 
+	// Official Account credentials are managed through the admin dashboard.
+	"GET /api/wechat-official-account": accessTokenSessionRule,
+	"PUT /api/wechat-official-account": accessTokenSessionRule,
+
 	// router/api-router.go: /api/redemption
 	"GET /api/redemption/":           accessTokenScopeRule("redemption:read"),
 	"GET /api/redemption/search":     accessTokenScopeRule("redemption:read"),

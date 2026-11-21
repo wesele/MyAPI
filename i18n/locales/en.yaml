@@ -97,3 +97,6 @@ channel.upstream_update_failed_channels: "Failed channel IDs (showing {{.Shown}}
 channel.upstream_update_more_omitted: " ({{.Count}} more omitted)"
 
 channel.notify_scheduled_subject: "Channel \"{{.Name}}\" (#{{.Id}}) plugin notification"
+
+wechat.redemption_issued: "Thanks for following! Your redemption code is {{.Code}}."
+wechat.redemption_unavailable: "Thanks for following! Redemption codes are temporarily out of stock."

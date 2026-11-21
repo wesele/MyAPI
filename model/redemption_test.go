@@ -1,14 +1,194 @@
 package model
 
 import (
+	"fmt"
+	"os"
 	"sync"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
+
+// The redemption table schema shipped in v1.0.0-rc.51, before group membership.
+type releasedRedemption struct {
+	Id           int
+	UserId       int
+	Key          string `gorm:"type:char(32);uniqueIndex"`
+	Status       int    `gorm:"default:1"`
+	Name         string `gorm:"index"`
+	Quota        int    `gorm:"default:100"`
+	CreatedTime  int64  `gorm:"bigint"`
+	RedeemedTime int64  `gorm:"bigint"`
+	UsedUserId   int
+	DeletedAt    gorm.DeletedAt `gorm:"index"`
+	ExpiredTime  int64          `gorm:"bigint"`
+}
+
+func (releasedRedemption) TableName() string { return "redemptions" }
+
+func TestRedemptionGroupsDatabaseMatrix(t *testing.T) {
+	dialects := []struct {
+		kind   common.DatabaseType
+		dsnEnv string
+		open   func(string) gorm.Dialector
+	}{
+		{common.DatabaseTypeSQLite, "", sqlite.Open},
+		{common.DatabaseTypeMySQL, "TEST_MYSQL_DSN", mysql.Open},
+		{common.DatabaseTypePostgreSQL, "TEST_POSTGRES_DSN", postgres.Open},
+	}
+	for _, dialect := range dialects {
+		t.Run(string(dialect.kind), func(t *testing.T) {
+			dsn := ":memory:"
+			if dialect.dsnEnv != "" {
+				dsn = os.Getenv(dialect.dsnEnv)
+				if dsn == "" {
+					t.Skipf("%s is not configured", dialect.dsnEnv)
+				}
+			}
+			for _, upgrade := range []bool{false, true} {
+				t.Run(fmt.Sprintf("upgrade=%v", upgrade), func(t *testing.T) {
+					checkRedemptionGroupMigration(t, dialect.open(dsn), dialect.kind, upgrade)
+				})
+			}
+		})
+	}
+}
+
+func checkRedemptionGroupMigration(t *testing.T, driver gorm.Dialector, kind common.DatabaseType, upgrade bool) {
+	t.Helper()
+	db, err := gorm.Open(driver, &gorm.Config{NamingStrategy: schema.NamingStrategy{TablePrefix: "redeem_group_test_"}})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	previousDB, previousType := DB, common.MainDatabaseType()
+	DB = db
+	common.SetMainDatabaseType(kind)
+	t.Cleanup(func() {
+		assert.NoError(t, db.Migrator().DropTable(&Redemption{}, &RedemptionGroup{}))
+		assert.NoError(t, sqlDB.Close())
+		DB = previousDB
+		common.SetMainDatabaseType(previousType)
+	})
+	versionSQL := "SELECT version()"
+	if kind == common.DatabaseTypeSQLite {
+		versionSQL = "SELECT sqlite_version()"
+	}
+	var version string
+	require.NoError(t, db.Raw(versionSQL).Scan(&version).Error)
+	t.Logf("database version: %s", version)
+
+	const legacyKey = "00000000000000000000000000001101"
+	if upgrade {
+		require.NoError(t, db.Table("redeem_group_test_redemptions").AutoMigrate(&releasedRedemption{}))
+		require.NoError(t, db.Table("redeem_group_test_redemptions").Create(&releasedRedemption{
+			Name: "legacy-code", Key: legacyKey, Quota: 500,
+		}).Error)
+	}
+	for range 2 {
+		require.NoError(t, db.AutoMigrate(&Redemption{}, &RedemptionGroup{}))
+	}
+	for _, column := range []string{"group_id", "name", "deleted_at"} {
+		index := db.NamingStrategy.IndexName("redeem_group_test_redemptions", column)
+		assert.True(t, db.Migrator().HasIndex(&Redemption{}, index), index)
+	}
+
+	const usableKey = "00000000000000000000000000001102"
+	group, err := CreateRedemptionGroup("Conference")
+	require.NoError(t, err)
+	require.NoError(t, RenameRedemptionGroup(group.Id, "November Conference"))
+	groups, err := ListRedemptionGroups()
+	require.NoError(t, err)
+	require.Equal(t, []RedemptionGroup{{Id: group.Id, Name: "November Conference"}}, groups)
+	codes := []Redemption{
+		{Name: "conference-active", Key: usableKey, Quota: 100},
+		{Name: "conference-used", Key: "00000000000000000000000000001103", Quota: 100, Status: common.RedemptionCodeStatusUsed},
+		{Name: "conference-disabled", Key: "00000000000000000000000000001104", Quota: 100, Status: common.RedemptionCodeStatusDisabled},
+		{Name: "conference-expired", Key: "00000000000000000000000000001105", Quota: 100, ExpiredTime: common.GetTimestamp() - 60},
+	}
+	require.NoError(t, CreateGroupedRedemptions(group.Id, codes))
+	require.Error(t, db.Create(&Redemption{Key: usableKey}).Error, "unique code constraint")
+	keys, err := ListUsableRedemptionGroupKeys(group.Id)
+	require.NoError(t, err)
+	assert.Equal(t, []string{usableKey}, keys)
+
+	ungrouped := 0
+	if upgrade {
+		rows, total, err := SearchRedemptionsInGroup("", "", &ungrouped, 0, 1)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, total)
+		assert.Equal(t, legacyKey, rows[0].Key)
+		assert.Equal(t, 500, rows[0].Quota)
+		_, total, err = SearchRedemptionsInGroup(fmt.Sprint(rows[0].Id), "", &group.Id, 0, 10)
+		require.NoError(t, err)
+		assert.Zero(t, total, "numeric search stays within the selected group")
+	}
+	rows, total, err := SearchRedemptionsInGroup("conference", "1", &group.Id, 0, 1)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	require.Len(t, rows, 1)
+	assert.Equal(t, usableKey, rows[0].Key)
+
+	require.NoError(t, MoveRedemptionsToGroup([]int{rows[0].Id}, ungrouped))
+	t.Run("disabling a group only affects its enabled codes", func(t *testing.T) {
+		other, err := CreateRedemptionGroup("Other event")
+		require.NoError(t, err)
+		otherCodes := []Redemption{{Key: "00000000000000000000000000001108", Quota: 100}}
+		require.NoError(t, CreateGroupedRedemptions(other.Id, otherCodes))
+		deleted := Redemption{Key: "00000000000000000000000000001107", Quota: 100}
+		require.NoError(t, deleted.Insert())
+		require.NoError(t, MoveRedemptionsToGroup([]int{deleted.Id}, group.Id))
+		require.NoError(t, deleted.Delete())
+		count, err := DisableRedemptionsInGroup(group.Id)
+		require.NoError(t, err)
+		assert.EqualValues(t, 1, count)
+		for index, status := range []int{
+			common.RedemptionCodeStatusEnabled,
+			common.RedemptionCodeStatusUsed,
+			common.RedemptionCodeStatusDisabled,
+			common.RedemptionCodeStatusDisabled,
+		} {
+			code, err := GetRedemptionById(codes[index].Id)
+			require.NoError(t, err)
+			assert.Equal(t, status, code.Status)
+		}
+		var deletedCode Redemption
+		require.NoError(t, db.Unscoped().First(&deletedCode, deleted.Id).Error)
+		assert.Equal(t, common.RedemptionCodeStatusEnabled, deletedCode.Status)
+		count, err = DisableRedemptionsInGroup(group.Id)
+		require.NoError(t, err)
+		assert.Zero(t, count)
+
+		count, err = DisableRedemptionsInGroup(0)
+		require.NoError(t, err)
+		want := int64(1)
+		if upgrade {
+			want++
+		}
+		assert.Equal(t, want, count)
+		// An editor opened before disabling must preserve the new status.
+		require.NoError(t, rows[0].Update())
+		code, err := GetRedemptionById(rows[0].Id)
+		require.NoError(t, err)
+		assert.Equal(t, common.RedemptionCodeStatusDisabled, code.Status)
+		otherCode, err := GetRedemptionById(otherCodes[0].Id)
+		require.NoError(t, err)
+		assert.Equal(t, common.RedemptionCodeStatusEnabled, otherCode.Status)
+	})
+	require.NoError(t, DeleteRedemptionGroup(group.Id))
+	assert.Error(t, MoveRedemptionsToGroup([]int{rows[0].Id}, group.Id))
+	assert.Error(t, CreateGroupedRedemptions(group.Id, []Redemption{{Name: "invalid", Key: "00000000000000000000000000001106", Quota: 100}}))
+	_, total, err = SearchRedemptionsInGroup("conference", "", &ungrouped, 0, 2)
+	require.NoError(t, err)
+	assert.EqualValues(t, 4, total, "deleting a group preserves all its codes")
+}
 
 func TestSearchRedemptionsFiltersAndPaginates(t *testing.T) {
 	require.NoError(t, DB.AutoMigrate(&Redemption{}))

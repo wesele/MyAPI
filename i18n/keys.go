@@ -120,3 +120,8 @@ const (
 	MsgChannelUpstreamUpdateFailedChannels  = "channel.upstream_update_failed_channels"
 	MsgChannelUpstreamUpdateMoreOmitted     = "channel.upstream_update_more_omitted"
 )
+
+const (
+	MsgWeChatRedemptionIssued      = "wechat.redemption_issued"
+	MsgWeChatRedemptionUnavailable = "wechat.redemption_unavailable"
+)

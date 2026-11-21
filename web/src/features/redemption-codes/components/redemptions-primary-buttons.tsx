@@ -16,7 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Plus, Trash2 } from 'lucide-react'
+import { useMutation } from '@tanstack/react-query'
+import { Ban, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -24,17 +25,34 @@ import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { handleServerError } from '@/lib/handle-server-error'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
-import { deleteInvalidRedemptions } from '../api'
+import { deleteInvalidRedemptions, disableRedemptionGroupCodes } from '../api'
 import { ERROR_MESSAGES } from '../constants'
+import type { RedemptionGroup } from '../types'
 import { useRedemptions } from './redemptions-provider'
 
-export function RedemptionsPrimaryButtons() {
+export function RedemptionsPrimaryButtons(props: {
+  currentGroup?: RedemptionGroup
+}) {
   const { t } = useTranslation()
   const { setOpen, triggerRefresh } = useRedemptions()
   const [showDeleteInvalidConfirm, setShowDeleteInvalidConfirm] =
     useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [disableTarget, setDisableTarget] = useState<RedemptionGroup>()
+  const currentDisableTarget =
+    disableTarget?.id === props.currentGroup?.id ? disableTarget : undefined
+  const disableGroup = useMutation({
+    mutationFn: async (groupId: number) =>
+      requireServerSuccess(await disableRedemptionGroupCodes(groupId)).data ??
+      0,
+    onSuccess: (count) => {
+      toast.success(t('Disabled {{count}} redemption codes', { count }))
+      triggerRefresh()
+      setDisableTarget(undefined)
+    },
+  })
 
   const handleDeleteInvalid = async () => {
     setIsDeleting(true)
@@ -63,6 +81,15 @@ export function RedemptionsPrimaryButtons() {
         <Button
           size='sm'
           variant='outline'
+          disabled={!props.currentGroup || disableGroup.isPending}
+          onClick={() => setDisableTarget(props.currentGroup)}
+        >
+          <Ban className='text-destructive size-4' aria-hidden='true' />
+          {t('Disable Current Group')}
+        </Button>
+        <Button
+          size='sm'
+          variant='outline'
           onClick={() => setShowDeleteInvalidConfirm(true)}
         >
           <Trash2 className='text-destructive h-4 w-4' />
@@ -73,6 +100,25 @@ export function RedemptionsPrimaryButtons() {
           {t('Create Code')}
         </Button>
       </div>
+
+      <ConfirmDialog
+        destructive
+        open={currentDisableTarget !== undefined}
+        onOpenChange={(open) => {
+          if (!open && !disableGroup.isPending) setDisableTarget(undefined)
+        }}
+        handleConfirm={() => {
+          if (currentDisableTarget && !disableGroup.isPending) {
+            disableGroup.mutate(currentDisableTarget.id)
+          }
+        }}
+        isLoading={disableGroup.isPending}
+        title={t('Disable Current Group')}
+        desc={t('Disable all enabled redemption codes in “{{group}}”?', {
+          group: currentDisableTarget?.name ?? '',
+        })}
+        confirmText={disableGroup.isPending ? t('Disabling...') : t('Disable')}
+      />
 
       <ConfirmDialog
         destructive

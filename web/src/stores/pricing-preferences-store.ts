@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type PricingCurrencyPreference = 'USD' | 'site'
+export type PricingCurrencyPreference = 'USD' | 'CNY' | 'site'
 
 type PricingPreferences = {
   currency: PricingCurrencyPreference
