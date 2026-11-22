@@ -35,6 +35,7 @@ import {
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
 import { MultiSelect } from '@/components/multi-select'
+import { ResourceGroupSelect } from '@/components/resource-group-select'
 import { Button } from '@/components/ui/button'
 import {
   Collapsible,
@@ -87,7 +88,7 @@ import {
   transformFormDataToPayload,
   transformApiKeyToFormDefaults,
 } from '../lib'
-import type { ApiKey } from '../types'
+import type { ApiKey, ApiKeyGroup } from '../types'
 import {
   ApiKeyGroupCombobox,
   type ApiKeyGroupOption,
@@ -99,12 +100,16 @@ type ApiKeyMutateDrawerProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   currentRow?: ApiKey
+  groups?: ApiKeyGroup[]
+  groupId?: number
 }
 
 export function ApiKeysMutateDrawer({
   open,
   onOpenChange,
   currentRow,
+  groups: keyGroups,
+  groupId,
 }: ApiKeyMutateDrawerProps) {
   const { t } = useTranslation()
   const isUpdate = !!currentRow
@@ -208,9 +213,10 @@ export function ApiKeysMutateDrawer({
   // Load existing data when updating
   useEffect(() => {
     if (!open) {
-      form.reset(
-        getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto)
-      )
+      form.reset({
+        ...getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto),
+        group_id: groupId ?? 0,
+      })
       setInitializedTarget(null)
       return
     }
@@ -239,9 +245,10 @@ export function ApiKeysMutateDrawer({
         setInitializedTarget(target)
       }
     } else {
-      form.reset(
-        getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto)
-      )
+      form.reset({
+        ...getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto),
+        group_id: groupId ?? 0,
+      })
       setInitializedTarget(target)
     }
   }, [
@@ -262,6 +269,7 @@ export function ApiKeysMutateDrawer({
     availableAutoGroupNames,
     maxAutoGroups,
     initializedTarget,
+    groupId,
   ])
 
   const formTarget =
@@ -413,6 +421,31 @@ export function ApiKeysMutateDrawer({
                   </FormItem>
                 )}
               />
+
+              {keyGroups &&
+                (keyGroups.length > 0 ||
+                  !!groupId ||
+                  (isUpdate && !!apiKeyData?.data?.group_id)) && (
+                  <FormField
+                    control={form.control}
+                    name='group_id'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel htmlFor='api-key-group-select'>
+                          {t('Key Group')}
+                        </FormLabel>
+                        <ResourceGroupSelect
+                          id='api-key-group-select'
+                          ariaLabel={t('Key Group')}
+                          groups={keyGroups}
+                          value={field.value ?? 0}
+                          onChange={field.onChange}
+                        />
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
 
               <FormField
                 control={form.control}

@@ -46,6 +46,7 @@ import {
 import {
   comparablePrices,
   createQuoteFormatters,
+  formatDiscountLabel,
   getPublicModelGroup,
   getReferenceAmount,
 } from './pricing'
@@ -59,7 +60,8 @@ import {
 export function PortalHighlights() {
   const { t, i18n } = useTranslation()
   const surveyTitleId = useId()
-  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const language = i18n.resolvedLanguage || i18n.language
+  const locale = toIntlLocale(language)
   const { status } = useStatus()
   const format = createQuoteFormatters(locale, status?.usd_exchange_rate)
   const catalog = useQuery(publicCatalog)
@@ -101,8 +103,16 @@ export function PortalHighlights() {
                     references.data?.[model.model_name],
                     price.kind
                   )
-                const discount =
-                  price && format.discount(price.current, original)
+                const discountLabel =
+                  price &&
+                  formatDiscountLabel({
+                    t,
+                    language,
+                    locale,
+                    usd: price.current,
+                    original,
+                    format,
+                  })
                 return (
                   <li
                     key={model.model_name}
@@ -138,11 +148,9 @@ export function PortalHighlights() {
                           {format.reference(original)}
                         </span>
                       )}
-                      {discount !== undefined && discount > 0 && (
+                      {discountLabel && (
                         <Badge className='bg-emerald-500/12 text-emerald-800 dark:text-emerald-300'>
-                          {t('{{discount}}% off', {
-                            discount: formatNumber(discount, locale),
-                          })}
+                          {discountLabel}
                         </Badge>
                       )}
                     </span>

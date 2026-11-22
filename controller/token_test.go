@@ -1015,3 +1015,225 @@ func verifyAPITokenAudit(t *testing.T) {
 		assert.EqualValues(t, 1, count)
 	})
 }
+
+func TestTokenGroupEndpoints(t *testing.T) {
+	db := openTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Token{}, &model.TokenGroup{}, &model.UserAccessToken{}))
+	logDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	logSQL, err := logDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = logSQL.Close() })
+	require.NoError(t, logDB.AutoMigrate(&model.AuditLog{}))
+	model.LOG_DB = logDB
+
+	owner := model.User{
+		Username:    "token-group-owner",
+		Password:    "unused",
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusEnabled,
+		Group:       "default",
+		AuthVersion: 1,
+		AffCode:     "tg-owner",
+	}
+	other := model.User{
+		Username:    "token-group-other",
+		Password:    "unused",
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusEnabled,
+		Group:       "default",
+		AuthVersion: 1,
+		AffCode:     "tg-other",
+	}
+	require.NoError(t, db.Create(&owner).Error)
+	require.NoError(t, db.Create(&other).Error)
+
+	issueSessionJWT := func(u model.User, sid string) string {
+		session := &model.UserSession{
+			SID:             sid,
+			UserID:          u.Id,
+			Version:         1,
+			UserAuthVersion: u.AuthVersion,
+			Status:          model.UserSessionStatusActive,
+			RefreshHash:     "placeholder",
+			LoginMethod:     "password",
+			LastActiveAt:    time.Now().Unix(),
+			ExpiresAt:       time.Now().Add(time.Hour).Unix(),
+		}
+		require.NoError(t, model.CreateUserSession(session))
+		jwt, _, err := service.IssueAccessToken(service.AuthIdentity{
+			UserID:          u.Id,
+			SessionID:       session.SID,
+			UserAuthVersion: u.AuthVersion,
+			SessionVersion:  1,
+		})
+		require.NoError(t, err)
+		return jwt
+	}
+	ownerJWT := issueSessionJWT(owner, "token-group-owner-sid")
+	otherJWT := issueSessionJWT(other, "token-group-other-sid")
+
+	issueScopedPAT := func(name string, scopes []string) string {
+		suffix, err := common.GenerateRandomCharsKey(43)
+		require.NoError(t, err)
+		raw := model.AccessTokenPrefix + suffix
+		pat := &model.UserAccessToken{
+			Name:      name,
+			TokenHash: model.AccessTokenFingerprint(raw),
+			TokenHint: model.AccessTokenHint(raw),
+			CreatedAt: common.GetTimestamp(),
+		}
+		require.NoError(t, pat.SetScopes(scopes))
+		require.NoError(t, model.CreateUserAccessToken(owner.Id, pat, service.AccessTokenMaxPerUser))
+		return raw
+	}
+	rawReadOnlyPAT := issueScopedPAT("read-only", []string{"api_key:read"})
+	rawRevealPAT := issueScopedPAT("reveal", []string{"api_key:reveal"})
+
+	router := gin.New()
+	router.Use(middleware.RequestId())
+	tokenRoutes := router.Group("/api/token", middleware.UserAuth(), middleware.TokenOperationAudit())
+	{
+		tokenRoutes.GET("/", GetAllTokens)
+		tokenRoutes.GET("/search", SearchTokens)
+		tokenRoutes.GET("/groups", ListTokenGroups)
+		tokenRoutes.POST("/groups", CreateTokenGroup)
+		tokenRoutes.GET("/groups/:group_id/download", DownloadTokenGroupKeys)
+		tokenRoutes.POST("/groups/:group_id/disable", DisableTokenGroupKeys)
+		tokenRoutes.PUT("/groups/:group_id", UpdateTokenGroup)
+		tokenRoutes.DELETE("/groups/:group_id", DeleteTokenGroup)
+		tokenRoutes.PUT("/groups/members", MoveTokenGroupMembers)
+		tokenRoutes.POST("/", AddToken)
+		tokenRoutes.PUT("/", UpdateToken)
+	}
+
+	doReq := func(method, path, body, auth string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+auth)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		return resp
+	}
+
+	// Create and list groups (with concurrency_limit)
+	resp := doReq(http.MethodPost, "/api/token/groups", `{"name":"  Staging Keys  ","concurrency_limit":2}`, ownerJWT)
+	require.Equal(t, http.StatusOK, resp.Code)
+	apiResp := decodeAPIResponse(t, resp)
+	require.True(t, apiResp.Success)
+	var createdGroup model.TokenGroup
+	require.NoError(t, json.Unmarshal(apiResp.Data, &createdGroup))
+	assert.Equal(t, "Staging Keys", createdGroup.Name)
+	assert.Equal(t, owner.Id, createdGroup.UserId)
+	assert.Equal(t, 2, createdGroup.ConcurrencyLimit)
+
+	// Negative concurrency_limit rejected
+	resp = doReq(http.MethodPost, "/api/token/groups", `{"name":"Bad Limit","concurrency_limit":-1}`, ownerJWT)
+	assert.False(t, decodeAPIResponse(t, resp).Success)
+
+	// Invalid group name rejected
+	resp = doReq(http.MethodPost, "/api/token/groups", `{"name":"   "}`, ownerJWT)
+	assert.False(t, decodeAPIResponse(t, resp).Success)
+
+	// Other user cannot see or update owner's group
+	resp = doReq(http.MethodGet, "/api/token/groups", "", otherJWT)
+	apiResp = decodeAPIResponse(t, resp)
+	require.True(t, apiResp.Success)
+	var otherGroups []model.TokenGroup
+	require.NoError(t, json.Unmarshal(apiResp.Data, &otherGroups))
+	assert.Empty(t, otherGroups)
+
+	resp = doReq(http.MethodPut, fmt.Sprintf("/api/token/groups/%d", createdGroup.Id), `{"name":"Hijacked"}`, otherJWT)
+	assert.False(t, decodeAPIResponse(t, resp).Success)
+
+	// Rename group without concurrency_limit preserves existing concurrency_limit
+	resp = doReq(http.MethodPut, fmt.Sprintf("/api/token/groups/%d", createdGroup.Id), `{"name":"Production Keys"}`, ownerJWT)
+	apiResp = decodeAPIResponse(t, resp)
+	require.True(t, apiResp.Success)
+	require.NoError(t, json.Unmarshal(apiResp.Data, &createdGroup))
+	assert.Equal(t, "Production Keys", createdGroup.Name)
+	assert.Equal(t, 2, createdGroup.ConcurrencyLimit)
+
+	// Update group concurrency_limit explicitly (including back to 0)
+	resp = doReq(http.MethodPut, fmt.Sprintf("/api/token/groups/%d", createdGroup.Id), `{"name":"Production Keys","concurrency_limit":5}`, ownerJWT)
+	apiResp = decodeAPIResponse(t, resp)
+	require.True(t, apiResp.Success)
+	require.NoError(t, json.Unmarshal(apiResp.Data, &createdGroup))
+	assert.Equal(t, 5, createdGroup.ConcurrencyLimit)
+
+	// Reject negative concurrency_limit on update
+	resp = doReq(http.MethodPut, fmt.Sprintf("/api/token/groups/%d", createdGroup.Id), `{"name":"Production Keys","concurrency_limit":-1}`, ownerJWT)
+	assert.False(t, decodeAPIResponse(t, resp).Success)
+
+	// Create token inside group, and ungrouped token
+	resp = doReq(http.MethodPost, "/api/token/", fmt.Sprintf(`{"name":"grouped-key","expired_time":-1,"unlimited_quota":true,"group_id":%d}`, createdGroup.Id), ownerJWT)
+	assert.True(t, decodeAPIResponse(t, resp).Success)
+	resp = doReq(http.MethodPost, "/api/token/", `{"name":"ungrouped-key","expired_time":-1,"unlimited_quota":true}`, ownerJWT)
+	assert.True(t, decodeAPIResponse(t, resp).Success)
+	// Reject creating token inside foreign group
+	resp = doReq(http.MethodPost, "/api/token/", fmt.Sprintf(`{"name":"bad-group","expired_time":-1,"unlimited_quota":true,"group_id":%d}`, createdGroup.Id), otherJWT)
+	assert.False(t, decodeAPIResponse(t, resp).Success)
+
+	// Filter GET /api/token/?group_id=
+	resp = doReq(http.MethodGet, fmt.Sprintf("/api/token/?p=1&size=20&group_id=%d", createdGroup.Id), "", ownerJWT)
+	apiResp = decodeAPIResponse(t, resp)
+	require.True(t, apiResp.Success)
+	var groupedPage struct {
+		Items []struct {
+			Id      int    `json:"id"`
+			Name    string `json:"name"`
+			GroupId int    `json:"group_id"`
+		} `json:"items"`
+		Total int `json:"total"`
+	}
+	require.NoError(t, json.Unmarshal(apiResp.Data, &groupedPage))
+	require.Equal(t, 1, groupedPage.Total)
+	assert.Equal(t, "grouped-key", groupedPage.Items[0].Name)
+	assert.Equal(t, createdGroup.Id, groupedPage.Items[0].GroupId)
+
+	// Filter GET /api/token/?group_id=0 (Ungrouped)
+	resp = doReq(http.MethodGet, "/api/token/?p=1&size=20&group_id=0", "", ownerJWT)
+	apiResp = decodeAPIResponse(t, resp)
+	require.True(t, apiResp.Success)
+	require.NoError(t, json.Unmarshal(apiResp.Data, &groupedPage))
+	require.Equal(t, 1, groupedPage.Total)
+	assert.Equal(t, "ungrouped-key", groupedPage.Items[0].Name)
+	ungroupedTokenID := groupedPage.Items[0].Id
+
+	// UpdateToken without group_id preserves existing group_id; with group_id updates it
+	resp = doReq(http.MethodPut, "/api/token/", fmt.Sprintf(`{"id":%d,"name":"ungrouped-renamed","expired_time":-1,"unlimited_quota":true,"group_id":%d}`, ungroupedTokenID, createdGroup.Id), ownerJWT)
+	assert.True(t, decodeAPIResponse(t, resp).Success)
+	resp = doReq(http.MethodPut, "/api/token/", fmt.Sprintf(`{"id":%d,"name":"ungrouped-kept","expired_time":-1,"unlimited_quota":true}`, ungroupedTokenID), ownerJWT)
+	assert.True(t, decodeAPIResponse(t, resp).Success)
+	reloaded, err := model.GetTokenByIds(ungroupedTokenID, owner.Id)
+	require.NoError(t, err)
+	assert.Equal(t, createdGroup.Id, reloaded.GroupId)
+
+	// Access token scope enforcement on download: api_key:read rejected, api_key:reveal allowed
+	resp = doReq(http.MethodGet, fmt.Sprintf("/api/token/groups/%d/download", createdGroup.Id), "", rawReadOnlyPAT)
+	assert.Equal(t, http.StatusForbidden, resp.Code)
+	resp = doReq(http.MethodGet, fmt.Sprintf("/api/token/groups/%d/download", createdGroup.Id), "", rawRevealPAT)
+	require.Equal(t, http.StatusOK, resp.Code)
+	lines := strings.Split(strings.TrimSpace(resp.Body.String()), "\n")
+	require.Len(t, lines, 2)
+	assert.True(t, strings.HasPrefix(lines[0], "sk-"))
+	assert.True(t, strings.HasPrefix(lines[1], "sk-"))
+
+	// Move member back to Ungrouped (0)
+	resp = doReq(http.MethodPut, "/api/token/groups/members", fmt.Sprintf(`{"ids":[%d],"group_id":0}`, ungroupedTokenID), ownerJWT)
+	assert.True(t, decodeAPIResponse(t, resp).Success)
+
+	// Disable current group only disables enabled tokens in that group
+	resp = doReq(http.MethodPost, fmt.Sprintf("/api/token/groups/%d/disable", createdGroup.Id), "", ownerJWT)
+	apiResp = decodeAPIResponse(t, resp)
+	require.True(t, apiResp.Success)
+	var disabledCount int64
+	require.NoError(t, json.Unmarshal(apiResp.Data, &disabledCount))
+	assert.EqualValues(t, 1, disabledCount)
+
+	// Delete group resets tokens to 0
+	resp = doReq(http.MethodDelete, fmt.Sprintf("/api/token/groups/%d", createdGroup.Id), "", ownerJWT)
+	assert.True(t, decodeAPIResponse(t, resp).Success)
+}

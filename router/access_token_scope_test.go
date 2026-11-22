@@ -75,8 +75,11 @@ var accessTokenExemptRoutes = []string{
 	"GET /api/usage/token/",
 	"GET /api/log/token",
 	"POST /api/shared/usage",
+	"POST /api/shared/redeem",
+	"POST /api/shared/trial-key",
 	"GET /api/shared/usage/:id/totals",
 	"GET /api/shared/usage/:id/logs",
+	"POST /api/shared/usage/:id/refill",
 }
 
 // accessTokenHelperRoutes are declared through handlePermissionRoute outside

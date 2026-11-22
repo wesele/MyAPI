@@ -20,7 +20,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import { flexRender, type Table as TanstackTable } from '@tanstack/react-table'
 import { Database } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -51,7 +51,8 @@ import {
   API_KEY_STATUSES,
   ERROR_MESSAGES,
 } from '../constants'
-import type { ApiKey } from '../types'
+import type { ApiKey, ApiKeyGroup } from '../types'
+import { ApiKeyGroups } from './api-key-groups'
 import { ApiKeyQuotaCell } from './api-key-quota-cell'
 import { ApiKeyActivityCell } from './api-key-timestamp-cell'
 import {
@@ -102,10 +103,12 @@ function ApiKeysMobileList({
   table,
   isLoading,
   now,
+  groupNames,
 }: {
   table: TanstackTable<ApiKey>
   isLoading: boolean
   now: number
+  groupNames: ReadonlyMap<number, string>
 }) {
   const { t } = useTranslation()
   const rows = table.getRowModel().rows
@@ -157,6 +160,11 @@ function ApiKeysMobileList({
                 <div className='text-sm leading-5 font-semibold break-words'>
                   {apiKey.name}
                 </div>
+                {apiKey.group_id ? (
+                  <div className='text-muted-foreground truncate text-xs'>
+                    {groupNames.get(apiKey.group_id) ?? '—'}
+                  </div>
+                ) : null}
               </div>
               {statusConfig && (
                 <StatusBadge
@@ -215,11 +223,25 @@ function ApiKeysMobileList({
   )
 }
 
-export function ApiKeysTable() {
+const emptyGroups: ApiKeyGroup[] = []
+
+type ApiKeysTableProps = {
+  groups?: ApiKeyGroup[]
+  groupId?: number
+  groupsLoaded?: boolean
+  onSelectGroup?: (id?: number) => void
+}
+
+export function ApiKeysTable(props: ApiKeysTableProps) {
   const { t } = useTranslation()
   const { refreshTrigger } = useApiKeys()
   const [now, setNow] = useState(() => Date.now())
-  const columns = useApiKeysColumns(now)
+  const keyGroups = props.groups ?? emptyGroups
+  const groupNames = useMemo(
+    () => new Map(keyGroups.map((group) => [group.id, group.name])),
+    [keyGroups]
+  )
+  const columns = useApiKeysColumns(now, groupNames)
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -268,6 +290,7 @@ export function ApiKeysTable() {
       pagination.pageSize,
       globalFilter,
       tokenFilter,
+      props.groupId,
       refreshTrigger,
     ],
     queryFn: async () => {
@@ -275,12 +298,14 @@ export function ApiKeysTable() {
         ? await searchApiKeys({
             keyword: globalFilter,
             token: tokenFilter,
+            group_id: props.groupId,
             p: pagination.pageIndex + 1,
             size: pagination.pageSize,
           })
         : await getApiKeys({
             p: pagination.pageIndex + 1,
             size: pagination.pageSize,
+            group_id: props.groupId,
           })
 
       if (!result.success) {
@@ -354,13 +379,23 @@ export function ApiKeysTable() {
         searchPlaceholder: t('Filter by name...'),
         searchDebounceMs: 500,
         additionalSearch: (
-          <Input
-            placeholder={t('Filter by API key...')}
-            aria-label={t('Filter by API key...')}
-            value={tokenFilterInput}
-            onChange={(e) => setTokenFilterInput(e.target.value)}
-            className='w-full sm:w-50 lg:w-60'
-          />
+          <>
+            <Input
+              placeholder={t('Filter by API key...')}
+              aria-label={t('Filter by API key...')}
+              value={tokenFilterInput}
+              onChange={(e) => setTokenFilterInput(e.target.value)}
+              className='w-full sm:w-50 lg:w-60'
+            />
+            {props.onSelectGroup && (
+              <ApiKeyGroups
+                groups={keyGroups}
+                groupId={props.groupId}
+                groupsLoaded={Boolean(props.groupsLoaded)}
+                onSelectGroup={props.onSelectGroup}
+              />
+            )}
+          </>
         ),
         filters: [
           {
@@ -372,12 +407,23 @@ export function ApiKeysTable() {
         ],
       }}
       mobile={
-        <ApiKeysMobileList table={table} isLoading={isLoading} now={now} />
+        <ApiKeysMobileList
+          table={table}
+          isLoading={isLoading}
+          now={now}
+          groupNames={groupNames}
+        />
       }
       getRowClassName={(row) =>
         isDisabledApiKeyRow(row.original) ? DISABLED_ROW_DESKTOP : undefined
       }
-      bulkActions={<DataTableBulkActions table={table} />}
+      bulkActions={
+        <DataTableBulkActions
+          table={table}
+          groups={keyGroups}
+          groupId={props.groupId}
+        />
+      }
     />
   )
 }

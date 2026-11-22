@@ -3,6 +3,7 @@ package router
 import (
 	"net/http"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/service/authz"
@@ -30,6 +31,8 @@ func SetApiRouter(router *gin.Engine) {
 		wechatSettings := apiRouter.Group("/wechat-official-account", middleware.DisableCache(), middleware.AdminAuth())
 		wechatSettings.GET("", controller.GetWeChatOfficialAccountSettings)
 		wechatSettings.PUT("", controller.UpdateWeChatOfficialAccountSettings)
+		wechatSettings.GET("/claims", controller.GetWeChatRedemptionClaims)
+		wechatSettings.DELETE("/claims/:id", controller.DeleteWeChatRedemptionClaim)
 
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", anonymousRequestBodyLimit, controller.PostSetup)
@@ -45,10 +48,20 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/home_page_content", controller.GetHomePageContent)
 		apiRouter.GET("/pricing", middleware.HeaderNavModuleAuth("pricing"), controller.GetPricing)
 		sharedPortal := apiRouter.Group("/shared", middleware.DisableCache(), middleware.SharedPortalRequest)
-		sharedPortal.POST("/usage", middleware.CriticalRateLimit(), middleware.TokenAuthReadOnly(), middleware.StartSharedUsage)
-		sharedUsage := sharedPortal.Group("/usage/:id", middleware.CriticalRateLimit(), middleware.ResumeSharedUsage, middleware.TokenAuthReadOnly())
-		sharedUsage.GET("/totals", controller.GetTokenUsage)
+		sharedPortal.POST("/usage", middleware.SharedUsageRateLimit(), middleware.TokenAuthReadOnly(), middleware.StartSharedUsage)
+		sharedPortal.POST("/redeem", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.RedeemToAdminToken)
+		trialRateLimit := middleware.SharedTrialRateLimit()
+		sharedPortal.POST("/trial-key", middleware.TryUserAuth(), func(c *gin.Context) {
+			if c.GetInt("role") >= common.RoleAdminUser {
+				c.Next()
+				return
+			}
+			trialRateLimit(c)
+		}, anonymousRequestBodyLimit, controller.ClaimSharedTrialKey)
+		sharedUsage := sharedPortal.Group("/usage/:id", middleware.ResumeSharedUsage, middleware.TokenAuthReadOnly())
+		sharedUsage.GET("/totals", controller.GetSharedTokenUsage)
 		sharedUsage.GET("/logs", controller.GetLogByKey)
+		sharedUsage.POST("/refill", controller.RefillSharedTrialKey)
 		sharedPortal.GET("/reference-prices", controller.GetSharedReferencePrices)
 		sharedPortal.GET("/survey", controller.GetSubscriptionInterest)
 		sharedPortal.PUT("/survey", middleware.CriticalRateLimit(), controller.SaveSubscriptionInterest)
@@ -314,6 +327,13 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.GET("/", controller.GetAllTokens)
 			tokenRoute.GET("/search", middleware.SearchRateLimit(), controller.SearchTokens)
 			tokenRoute.GET("/auto-groups", controller.GetTokenAutoGroups)
+			tokenRoute.GET("/groups", controller.ListTokenGroups)
+			tokenRoute.POST("/groups", controller.CreateTokenGroup)
+			tokenRoute.GET("/groups/:group_id/download", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.DownloadTokenGroupKeys)
+			tokenRoute.POST("/groups/:group_id/disable", controller.DisableTokenGroupKeys)
+			tokenRoute.PUT("/groups/:group_id", controller.UpdateTokenGroup)
+			tokenRoute.DELETE("/groups/:group_id", controller.DeleteTokenGroup)
+			tokenRoute.PUT("/groups/members", controller.MoveTokenGroupMembers)
 			tokenRoute.GET("/:id", controller.GetToken)
 			tokenRoute.POST("/:id/key", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKey)
 			tokenRoute.POST("/", controller.AddToken)

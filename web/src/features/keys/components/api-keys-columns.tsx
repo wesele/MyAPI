@@ -67,7 +67,10 @@ function useGroupRatios(): Record<string, number | string> {
   return data ?? EMPTY_GROUP_RATIOS
 }
 
-export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
+export function useApiKeysColumns(
+  now: number,
+  groupNames?: ReadonlyMap<number, string>
+): ColumnDef<ApiKey>[] {
   const { t, i18n } = useTranslation()
   useSystemConfigStore((state) => state.config.currency)
   const { meta: currency } = getCurrencyDisplay()
@@ -111,6 +114,21 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
         ),
         size: 180,
         meta: { mobileTitle: true },
+      },
+      {
+        accessorKey: 'group_id',
+        header: t('Key Group'),
+        cell: ({ row }) => {
+          const groupId = row.original.group_id
+          const name = groupId ? groupNames?.get(groupId) : t('Ungrouped')
+          return (
+            <span className='block max-w-40 truncate' title={name}>
+              {name ?? '—'}
+            </span>
+          )
+        },
+        size: 140,
+        meta: { mobileHidden: true },
       },
       {
         accessorKey: 'status',
@@ -233,6 +251,15 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
         meta: { pinned: 'right' as const },
       },
     ],
-    [t, quotaUnit, now, groupRatios, shouldReduceMotion, locale, justNowLabel]
+    [
+      t,
+      quotaUnit,
+      now,
+      groupRatios,
+      groupNames,
+      shouldReduceMotion,
+      locale,
+      justNowLabel,
+    ]
   )
 }

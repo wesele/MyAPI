@@ -342,6 +342,7 @@ func migrateDB() error {
 	err := DB.AutoMigrate(
 		&Channel{},
 		&Token{},
+		&TokenGroup{},
 		&User{},
 		&UserSession{},
 		&AuthFlow{},
@@ -352,6 +353,7 @@ func migrateDB() error {
 		&Redemption{},
 		&RedemptionGroup{},
 		&WeChatRedemptionDelivery{},
+		&WeChatRedemptionClaim{},
 		&Ability{},
 		&Log{},
 		&Midjourney{},

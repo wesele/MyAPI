@@ -18,15 +18,25 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { ArrowDown, ArrowUp, Layers3, Search } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  ModelPerfBadge,
+  type ModelPerfBadgeData,
+} from '@/features/pricing/components/model-perf-badge'
 import { ModelPriceCell } from '@/features/pricing/components/model-price-cell'
 import type { PricingModel } from '@/features/pricing/types'
 import { useStatus } from '@/hooks/use-status'
@@ -35,6 +45,7 @@ import { formatNumber } from '@/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
 import {
+  getPublicPerfMetricsSummary,
   publicCatalog,
   publicReferencePrices,
   type ReferencePrice,
@@ -43,6 +54,7 @@ import { SharedPortalLayout } from './layout'
 import {
   comparablePrices,
   createQuoteFormatters,
+  formatDiscountLabel,
   getPublicModelGroup,
   getReferenceAmount,
   referencePriceKinds,
@@ -53,51 +65,55 @@ function CatalogModel(props: {
   group: string
   ratio: number
   reference?: ReferencePrice
+  perf?: ModelPerfBadgeData
   format: ReturnType<typeof createQuoteFormatters>
 }) {
   const { t, i18n } = useTranslation()
-  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const language = i18n.resolvedLanguage || i18n.language
+  const locale = toIntlLocale(language)
   const prices = comparablePrices(props.model, props.ratio)
   const iconName = props.model.icon || props.model.vendor_icon
-  const icon = iconName ? getLobeIcon(iconName, 24) : null
+  const icon = iconName ? getLobeIcon(iconName, 14) : null
   const priceLabels = {
     input: t('Input'),
     output: t('Output'),
     request: t('Per request'),
   }
   const source = props.reference
+  const extraReferenceKinds = source
+    ? referencePriceKinds.filter((kind) => {
+        const original = getReferenceAmount(source, kind)
+        return Boolean(original && !prices.some((price) => price.kind === kind))
+      })
+    : []
 
   return (
-    <Card className='border-border/75 rounded-2xl py-5'>
-      <CardHeader className='flex items-start gap-3 px-5'>
-        <span className='bg-accent text-accent-foreground grid size-11 shrink-0 place-items-center rounded-xl'>
-          {icon ?? <Layers3 className='size-5' aria-hidden='true' />}
+    <Card
+      size='sm'
+      className='border-border/75 flex h-full flex-col gap-1.5 rounded-xl py-2.5'
+    >
+      <CardHeader className='flex items-center gap-2 px-3'>
+        <span className='bg-accent text-accent-foreground grid size-6 shrink-0 place-items-center rounded-md'>
+          {icon ?? <Layers3 className='size-3.5' aria-hidden='true' />}
         </span>
-        <div className='min-w-0'>
-          <CardTitle className='font-mono text-lg font-semibold wrap-anywhere sm:text-xl'>
-            {props.model.model_name}
-          </CardTitle>
-          {props.model.vendor_name && (
-            <p className='text-muted-foreground mt-1 text-sm'>
-              {props.model.vendor_name}
-            </p>
-          )}
-        </div>
+        <CardTitle className='min-w-0 font-mono text-sm leading-snug font-semibold wrap-anywhere'>
+          {props.model.model_name}
+        </CardTitle>
       </CardHeader>
-      <CardContent className='space-y-4 px-5'>
+      <CardContent className='flex-1 space-y-1.5 px-3'>
         {props.model.description && (
-          <p className='text-muted-foreground text-sm leading-relaxed'>
+          <p className='text-muted-foreground text-xs leading-snug'>
             {props.model.description}
           </p>
         )}
         {Boolean(props.model.context_length) && (
-          <Badge variant='outline'>
+          <Badge variant='outline' className='h-4 px-1.5 text-[11px]'>
             {t('Context Window')} ·{' '}
             {formatNumber(props.model.context_length, locale)}
           </Badge>
         )}
         {prices.length === 0 ? (
-          <div className='bg-muted/40 rounded-xl p-3'>
+          <div className='bg-muted/40 rounded-lg px-2.5 py-2 text-xs'>
             <ModelPriceCell
               model={props.model}
               options={{
@@ -108,39 +124,55 @@ function CatalogModel(props: {
             />
           </div>
         ) : (
-          <dl className='grid gap-2 sm:grid-cols-2'>
+          <dl
+            className={
+              prices.length > 1 ? 'grid grid-cols-2 gap-2' : 'grid gap-2'
+            }
+          >
             {prices.map((price) => {
               const original = getReferenceAmount(props.reference, price.kind)
-              const discount = props.format.discount(price.current, original)
+              const discountLabel = formatDiscountLabel({
+                t,
+                language,
+                locale,
+                usd: price.current,
+                original,
+                format: props.format,
+              })
               const direction = price.kind === 'output' ? ArrowUp : ArrowDown
               const Icon = price.kind === 'request' ? Layers3 : direction
               return (
-                <div key={price.kind} className='bg-muted/45 rounded-xl p-3'>
-                  <dt className='text-muted-foreground flex flex-wrap items-center gap-1.5 text-xs font-medium'>
-                    <Icon className='size-3.5' aria-hidden='true' />
-                    {priceLabels[price.kind]}
-                  </dt>
-                  <dd className='mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1'>
-                    <span className='text-2xl font-semibold tracking-tight tabular-nums'>
-                      {props.format.quote(price.current)}
+                <div
+                  key={price.kind}
+                  className='bg-muted/45 rounded-lg px-2.5 py-1.5'
+                >
+                  <dt className='text-muted-foreground flex items-center justify-between gap-1 text-[11px] font-medium'>
+                    <span className='inline-flex items-center gap-1'>
+                      <Icon className='size-3 shrink-0' aria-hidden='true' />
+                      {priceLabels[price.kind]}
                     </span>
                     {price.kind !== 'request' && (
-                      <span className='text-muted-foreground text-xs'>
+                      <span className='text-[10px] font-normal'>
                         {t('Per 1M tokens')}
                       </span>
                     )}
-                    {discount !== undefined && discount > 0 && (
-                      <Badge className='bg-emerald-500/12 text-emerald-800 dark:text-emerald-300'>
-                        {t('{{discount}}% off', {
-                          discount: formatNumber(discount, locale),
-                        })}
-                      </Badge>
-                    )}
+                  </dt>
+                  <dd className='mt-0.5 text-base leading-tight font-semibold tracking-tight tabular-nums'>
+                    {props.format.quote(price.current)}
                   </dd>
-                  {original && (
-                    <dd className='text-muted-foreground mt-1 text-xs'>
-                      {t('Official reference price')} ·{' '}
-                      {props.format.reference(original)}
+                  {(original || discountLabel) && (
+                    <dd className='mt-0.5 flex flex-wrap items-center justify-between gap-x-1.5 gap-y-0.5 text-[11px] leading-tight'>
+                      {original && (
+                        <span className='text-muted-foreground'>
+                          {t('Official reference price')} ·{' '}
+                          {props.format.reference(original)}
+                        </span>
+                      )}
+                      {discountLabel && (
+                        <Badge className='h-4 shrink-0 bg-emerald-500/12 px-1.5 py-0 text-[10px] font-medium text-emerald-800 dark:text-emerald-300'>
+                          {discountLabel}
+                        </Badge>
+                      )}
                     </dd>
                   )}
                 </div>
@@ -148,13 +180,11 @@ function CatalogModel(props: {
             })}
           </dl>
         )}
-        {source && (
-          <dl className='text-muted-foreground space-y-1 text-xs'>
-            {referencePriceKinds.map((kind) => {
+        {source && extraReferenceKinds.length > 0 && (
+          <dl className='text-muted-foreground space-y-1 text-[11px]'>
+            {extraReferenceKinds.map((kind) => {
               const original = getReferenceAmount(source, kind)
-              if (!original || prices.some((price) => price.kind === kind)) {
-                return null
-              }
+              if (!original) return null
               return (
                 <div key={kind} className='flex flex-wrap gap-1'>
                   <dt>
@@ -169,26 +199,13 @@ function CatalogModel(props: {
             })}
           </dl>
         )}
-        {source && (
-          <div className='text-muted-foreground flex flex-wrap gap-x-2 gap-y-1 text-xs'>
-            <a
-              href={source.source}
-              className='text-foreground underline underline-offset-3'
-              target='_blank'
-              rel='noreferrer'
-            >
-              {t('Source')}
-            </a>
-            {source.max_input_tokens && (
-              <span>
-                {t('Input')} ≤ {formatNumber(source.max_input_tokens, locale)}{' '}
-                {t('tokens')}
-              </span>
-            )}
-            <time dateTime={source.checked}>{source.checked}</time>
-          </div>
-        )}
       </CardContent>
+      <CardFooter className='mt-auto border-0 bg-transparent px-3 pt-0 pb-2.5'>
+        <ModelPerfBadge
+          perf={props.perf}
+          className='border-border/60 border-t pt-1.5'
+        />
+      </CardFooter>
     </Card>
   )
 }
@@ -204,6 +221,21 @@ export function SharedModelsPage() {
   const pricing = useQuery(publicCatalog)
   const references = useQuery(publicReferencePrices)
   const data = pricing.data
+  const allModelNames = useMemo(
+    () =>
+      (data?.data ?? [])
+        .map((model) => model.model_name)
+        .filter((name): name is string => Boolean(name)),
+    [data?.data]
+  )
+  const perfQuery = useQuery({
+    queryKey: ['shared-model-perf-metrics', 24, allModelNames],
+    queryFn: ({ signal }) => getPublicPerfMetricsSummary(allModelNames, signal),
+    enabled: allModelNames.length > 0,
+    staleTime: 60_000,
+    retry: false,
+    meta: { errorToast: false },
+  })
   const term = search.trim().toLowerCase()
   const models = (data?.data ?? []).flatMap((model) => {
     if (!data) return []
@@ -233,20 +265,22 @@ export function SharedModelsPage() {
   })
   return (
     <SharedPortalLayout wide>
-      <section className='border-border/70 via-background to-background rounded-3xl border bg-linear-to-br from-teal-500/10 px-5 py-7 sm:px-8 sm:py-9'>
-        <h1 className='text-3xl font-semibold tracking-tight sm:text-4xl'>
-          {t('Models and pricing')}
-        </h1>
-        <p className='text-muted-foreground mt-2 text-sm'>
-          {t('Compare our input and output rates with official prices.')}
-        </p>
-        <div className='relative mt-5 max-w-md'>
+      <section className='border-border/70 via-background to-background flex flex-col gap-3 rounded-2xl border bg-linear-to-br from-teal-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-3.5'>
+        <div className='min-w-0'>
+          <h1 className='text-xl font-semibold tracking-tight sm:text-2xl'>
+            {t('Models and pricing')}
+          </h1>
+          <p className='text-muted-foreground mt-0.5 text-xs sm:text-sm'>
+            {t('Compare our input and output rates with official prices.')}
+          </p>
+        </div>
+        <div className='relative w-full shrink-0 sm:w-64 md:w-72'>
           <Search
             className='text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2'
             aria-hidden='true'
           />
           <Input
-            className='bg-background h-11 ps-9'
+            className='bg-background h-9 ps-9 text-sm'
             type='search'
             aria-label={t('Search models')}
             placeholder={t('Search models')}
@@ -257,12 +291,12 @@ export function SharedModelsPage() {
       </section>
       {pricing.isPending && (
         <Skeleton
-          className='mt-5 h-44 rounded-2xl'
+          className='mt-4 h-36 rounded-xl'
           aria-label={t('Loading...')}
         />
       )}
       {pricing.isError && (
-        <Alert className='mt-5' variant='destructive'>
+        <Alert className='mt-4' variant='destructive'>
           <AlertDescription className='flex flex-wrap items-center gap-2'>
             {t('Could not load models.')}
             <Button variant='outline' onClick={() => void pricing.refetch()}>
@@ -272,11 +306,11 @@ export function SharedModelsPage() {
         </Alert>
       )}
       {data && !models.length && (
-        <p className='text-muted-foreground mt-6' role='status'>
+        <p className='text-muted-foreground mt-5 text-sm' role='status'>
           {t('No models found')}
         </p>
       )}
-      <div className='mt-5 grid gap-4 lg:grid-cols-2'>
+      <div className='mt-3.5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
         {models.map(({ model, group, ratio }) => (
           <CatalogModel
             key={model.model_name}
@@ -285,6 +319,7 @@ export function SharedModelsPage() {
             ratio={ratio}
             format={format}
             reference={references.data?.[model.model_name]}
+            perf={perfQuery.data?.get(model.model_name)}
           />
         ))}
       </div>

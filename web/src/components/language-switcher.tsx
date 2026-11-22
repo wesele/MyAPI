@@ -38,7 +38,9 @@ import { useAuthStore } from '@/stores/auth-store'
 export function LanguageSwitcher() {
   const { i18n, t } = useTranslation()
   const user = useAuthStore((s) => s.auth.user)
-  const currentLanguage = normalizeInterfaceLanguage(i18n.language)
+  const currentLanguage = normalizeInterfaceLanguage(
+    i18n.resolvedLanguage || i18n.language
+  )
   const handleChangeLanguage = useCallback(
     async (code: string) => {
       await i18n.changeLanguage(code)
@@ -58,7 +60,7 @@ export function LanguageSwitcher() {
       <DropdownMenuTrigger
         render={<Button variant='ghost' size='icon' className='h-9 w-9' />}
       >
-        <Languages className='size-[1.2rem]' />
+        <Languages className='size-[1.2rem]' aria-hidden='true' />
         <span className='sr-only'>{t('Change language')}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align='end'>
@@ -70,6 +72,7 @@ export function LanguageSwitcher() {
             {lang.label}
             <Check
               size={14}
+              aria-hidden='true'
               className={cn(
                 'ms-auto',
                 currentLanguage !== lang.code && 'hidden'

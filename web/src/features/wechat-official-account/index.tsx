@@ -18,6 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
+import { ClipboardList } from 'lucide-react'
+import { useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -35,11 +38,13 @@ import {
   FormField,
   FormItem,
   FormLabel,
+  FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import {
   getRedemptionGroups,
   redemptionGroupsQueryKey,
@@ -109,9 +114,41 @@ export function WeChatOfficialAccount() {
       <SectionPageLayout.Title>
         {t('WeChat Official Account API')}
       </SectionPageLayout.Title>
+      <SectionPageLayout.Actions>
+        <Button
+          variant='outline'
+          size='sm'
+          nativeButton={false}
+          render={<Link to='/wechat-claims' />}
+        >
+          <ClipboardList className='size-4' aria-hidden='true' />
+          {t('WeChat Claim Records')}
+        </Button>
+      </SectionPageLayout.Actions>
       <SectionPageLayout.Content>{content}</SectionPageLayout.Content>
     </SectionPageLayout>
   )
+}
+
+function insertCodeVariable(
+  textarea: HTMLTextAreaElement | null,
+  currentValue: string,
+  onChange: (next: string) => void
+) {
+  const variable = '{{code}}'
+  const start = textarea?.selectionStart ?? currentValue.length
+  const end = textarea?.selectionEnd ?? currentValue.length
+  if (currentValue.length - (end - start) + variable.length > 500) {
+    return
+  }
+  const next = currentValue.slice(0, start) + variable + currentValue.slice(end)
+  onChange(next)
+  if (!textarea) return
+  window.requestAnimationFrame(() => {
+    textarea.focus()
+    const caret = start + variable.length
+    textarea.setSelectionRange(caret, caret)
+  })
 }
 
 function WeChatSettingsForm(props: {
@@ -120,6 +157,7 @@ function WeChatSettingsForm(props: {
 }) {
   const { t } = useTranslation()
   const { status } = useStatus()
+  const messageTemplateRef = useRef<HTMLTextAreaElement>(null)
   const serverAddress = status?.server_address
   const configuredAddress =
     typeof serverAddress === 'string' && isHttpUrl(serverAddress)
@@ -140,6 +178,9 @@ function WeChatSettingsForm(props: {
     mutationFn: async (values: WeChatSettingsFormValues) => {
       const response = await api.put<ApiResponse<WeChatSettings>>(endpoint, {
         ...values,
+        message_template: values.message_template
+          .replaceAll('\r\n', '\n')
+          .trim(),
         token: values.token.trim() || undefined,
         encoding_aes_key: values.encoding_aes_key.trim() || undefined,
       })
@@ -319,6 +360,53 @@ function WeChatSettingsForm(props: {
                     'Disabled codes are enabled and sent in ID order. Expired and previously sent codes are skipped.'
                   )}
                 </FormDescription>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='message_template'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Reply message')}</FormLabel>
+                <FormControl>
+                  <Textarea
+                    {...field}
+                    ref={(element) => {
+                      field.ref(element)
+                      messageTemplateRef.current = element
+                    }}
+                    rows={4}
+                    maxLength={500}
+                    placeholder={t(
+                      'Thanks for following! Your redemption code is {{placeholder}}.',
+                      { placeholder: '{{code}}' }
+                    )}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Leave blank to use the default message. Use {{placeholder}} to insert the redemption code.',
+                    { placeholder: '{{code}}' }
+                  )}
+                </FormDescription>
+                <div className='flex flex-wrap gap-2'>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='xs'
+                    onClick={() =>
+                      insertCodeVariable(
+                        messageTemplateRef.current,
+                        field.value,
+                        field.onChange
+                      )
+                    }
+                  >
+                    {t('Insert {{placeholder}}', { placeholder: '{{code}}' })}
+                  </Button>
+                </div>
+                <FormMessage />
               </FormItem>
             )}
           />

@@ -37,6 +37,7 @@ type tokenRequest struct {
 	AutoGroups tokenAutoGroupsInput `json:"auto_groups"`
 	// 指针区分“未传”和显式 false：新建时未传即开启，更新时未传则保留原值。
 	AllowUserQuotaQuery *bool `json:"allow_user_quota_query"`
+	GroupId             *int  `json:"group_id"`
 }
 
 type tokenResponse struct {
@@ -130,6 +131,10 @@ func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) boo
 }
 
 func GetAllTokens(c *gin.Context) {
+	if _, grouped := c.GetQuery("group_id"); grouped {
+		SearchTokens(c)
+		return
+	}
 	userId := c.GetInt("id")
 	pageInfo := common.GetPageQuery(c)
 	tokens, err := model.GetAllUserTokens(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
@@ -147,10 +152,19 @@ func SearchTokens(c *gin.Context) {
 	userId := c.GetInt("id")
 	keyword := c.Query("keyword")
 	token := c.Query("token")
+	var groupId *int
+	if raw, ok := c.GetQuery("group_id"); ok {
+		id, err := strconv.Atoi(raw)
+		if err != nil || id < 0 {
+			common.ApiErrorT(c, "Invalid parameters")
+			return
+		}
+		groupId = &id
+	}
 
 	pageInfo := common.GetPageQuery(c)
 
-	tokens, total, err := model.SearchUserTokens(userId, keyword, token, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	tokens, total, err := model.SearchUserTokensInGroup(userId, keyword, token, groupId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -228,33 +242,35 @@ func GetTokenStatus(c *gin.Context) {
 	})
 }
 
-func GetTokenUsage(c *gin.Context) {
+func resolveTokenFromAuthHeader(c *gin.Context) (*model.Token, bool) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
 			"message": "No Authorization header",
 		})
-		return
+		return nil, false
 	}
 
 	parts := strings.Split(authHeader, " ")
-	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
 			"message": "Invalid Bearer token",
 		})
-		return
+		return nil, false
 	}
-	tokenKey := parts[1]
 
-	token, err := model.GetTokenByKey(strings.TrimPrefix(tokenKey, "sk-"), false)
+	token, err := model.GetTokenByKey(strings.TrimPrefix(parts[1], "sk-"), false)
 	if err != nil {
 		common.SysError(common.LogText("failed to get token by key: %s", err.Error()))
 		common.ApiErrorI18n(c, i18n.MsgTokenGetInfoFailed)
-		return
+		return nil, false
 	}
+	return token, true
+}
 
+func buildTokenUsageData(token *model.Token) (gin.H, error) {
 	expiredAt := token.ExpiredTime
 	if expiredAt == -1 {
 		expiredAt = 0
@@ -279,14 +295,27 @@ func GetTokenUsage(c *gin.Context) {
 			userUsedQuota, err = model.GetUserUsedQuota(token.UserId)
 		}
 		if err != nil {
-			common.SysError(common.LogText("failed to get user quota: %s", err.Error()))
-			common.ApiErrorI18n(c, i18n.MsgTokenGetInfoFailed)
-			return
+			return nil, err
 		}
 		data["user_quota"] = gin.H{
 			"total_available": userQuota,
 			"total_used":      userUsedQuota,
 		}
+	}
+	return data, nil
+}
+
+func GetTokenUsage(c *gin.Context) {
+	token, ok := resolveTokenFromAuthHeader(c)
+	if !ok {
+		return
+	}
+
+	data, err := buildTokenUsageData(token)
+	if err != nil {
+		common.SysError(common.LogText("failed to get user quota: %s", err.Error()))
+		common.ApiErrorI18n(c, i18n.MsgTokenGetInfoFailed)
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -341,6 +370,14 @@ func AddToken(c *gin.Context) {
 		token.CrossGroupRetry = false
 		_ = token.SetAutoGroups(nil)
 	}
+	groupId := 0
+	if request.GroupId != nil {
+		if *request.GroupId < 0 {
+			common.ApiErrorT(c, "Invalid parameters")
+			return
+		}
+		groupId = *request.GroupId
+	}
 	key, err := common.GenerateKey()
 	if err != nil {
 		common.ApiErrorT(c, "Failed to generate token")
@@ -360,16 +397,24 @@ func AddToken(c *gin.Context) {
 		ModelLimits:        token.ModelLimits,
 		AllowIps:           token.AllowIps,
 		Group:              token.Group,
+		GroupId:            groupId,
 		CrossGroupRetry:    token.CrossGroupRetry,
 		AutoGroups:         token.AutoGroups,
 	}
 	cleanToken.AllowUserQuotaQuery = request.AllowUserQuotaQuery == nil || *request.AllowUserQuotaQuery
-	err = cleanToken.Insert()
+	if groupId > 0 {
+		err = model.CreateGroupedToken(cleanToken.UserId, groupId, &cleanToken)
+	} else {
+		err = cleanToken.Insert()
+	}
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	params["id"] = cleanToken.Id
+	if cleanToken.GroupId > 0 {
+		params["group_id"] = cleanToken.GroupId
+	}
 	common.SetContextKey(c, constant.ContextKeyTokenAuditSucceeded, true)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -460,6 +505,13 @@ func UpdateToken(c *gin.Context) {
 			cleanToken.AllowUserQuotaQuery = *request.AllowUserQuotaQuery
 		}
 		cleanToken.Group = token.Group
+		if request.GroupId != nil {
+			if *request.GroupId < 0 {
+				common.ApiErrorT(c, "Invalid parameters")
+				return
+			}
+			cleanToken.GroupId = *request.GroupId
+		}
 		cleanToken.CrossGroupRetry = token.CrossGroupRetry
 		if token.Group != "auto" {
 			cleanToken.CrossGroupRetry = false
@@ -470,7 +522,11 @@ func UpdateToken(c *gin.Context) {
 			}
 		}
 	}
-	err = cleanToken.Update()
+	if statusOnly == "" && request.GroupId != nil && cleanToken.GroupId > 0 {
+		err = model.UpdateGroupedToken(userId, cleanToken.GroupId, cleanToken)
+	} else {
+		err = cleanToken.Update()
+	}
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -494,6 +550,7 @@ func UpdateToken(c *gin.Context) {
 				(previous.AllowIps != nil && cleanToken.AllowIps != nil && *previous.AllowIps != *cleanToken.AllowIps)},
 			{"allow_user_quota_query", previous.AllowUserQuotaQuery != cleanToken.AllowUserQuotaQuery},
 			{"group", previous.Group != cleanToken.Group},
+			{"group_id", previous.GroupId != cleanToken.GroupId},
 			{"cross_group_retry", previous.CrossGroupRetry != cleanToken.CrossGroupRetry},
 			{"auto_groups", previous.AutoGroups != cleanToken.AutoGroups},
 		} {

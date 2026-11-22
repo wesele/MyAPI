@@ -16,13 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type Table } from '@tanstack/react-table'
-import { Copy, Trash2, Loader2 } from 'lucide-react'
-import { useState, useCallback } from 'react'
+import { useMutation } from '@tanstack/react-query'
+import type { Table } from '@tanstack/react-table'
+import { Copy, FolderInput, Loader2, Trash2 } from 'lucide-react'
+import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DataTableBulkActions as BulkActionsToolbar } from '@/components/data-table'
+import { ResourceGroupSelect } from '@/components/resource-group-select'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -30,23 +33,52 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
-import { type ApiKey } from '../types'
+import { moveApiKeysToGroup } from '../api'
+import type { ApiKey, ApiKeyGroup } from '../types'
 import { ApiKeysMultiDeleteDialog } from './api-keys-multi-delete-dialog'
 import { useApiKeys } from './api-keys-provider'
 
 type DataTableBulkActionsProps<TData> = {
   table: Table<TData>
+  groups?: ApiKeyGroup[]
+  groupId?: number
 }
 
 export function DataTableBulkActions<TData>({
   table,
+  groups,
+  groupId,
 }: DataTableBulkActionsProps<TData>) {
   const { t } = useTranslation()
-  const { resolveRealKeysBatch } = useApiKeys()
+  const { resolveRealKeysBatch, triggerRefresh } = useApiKeys()
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [moveTargets, setMoveTargets] = useState<number[] | null>(null)
+  const [destination, setDestination] = useState<number>()
   const [isCopying, setIsCopying] = useState(false)
   const selectedRows = table.getFilteredSelectedRowModel().rows
+
+  const move = useMutation({
+    mutationFn: async (request: { targets: number[]; destination: number }) =>
+      requireServerSuccess(
+        await moveApiKeysToGroup(request.targets, request.destination)
+      ),
+    onSuccess: (_, request) => {
+      setMoveTargets(null)
+      const targetIds = new Set(request.targets)
+      table.setRowSelection((previous) => {
+        const next = { ...previous }
+        for (const row of table.getSelectedRowModel().rows) {
+          if (targetIds.has((row.original as ApiKey).id)) {
+            delete next[row.id]
+          }
+        }
+        return next
+      })
+      triggerRefresh()
+    },
+  })
 
   const handleBatchCopy = useCallback(async () => {
     if (selectedRows.length === 0) return
@@ -107,6 +139,30 @@ export function DataTableBulkActions<TData>({
           </TooltipContent>
         </Tooltip>
 
+        {groups && groups.length > 0 && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant='outline'
+                  size='icon'
+                  className='size-8'
+                  aria-label={t('Move to Group')}
+                  onClick={() => {
+                    setDestination(undefined)
+                    setMoveTargets(
+                      selectedRows.map((row) => (row.original as ApiKey).id)
+                    )
+                  }}
+                />
+              }
+            >
+              <FolderInput aria-hidden='true' />
+            </TooltipTrigger>
+            <TooltipContent>{t('Move to Group')}</TooltipContent>
+          </Tooltip>
+        )}
+
         <Tooltip>
           <TooltipTrigger
             render={
@@ -127,6 +183,38 @@ export function DataTableBulkActions<TData>({
           </TooltipContent>
         </Tooltip>
       </BulkActionsToolbar>
+
+      <ConfirmDialog
+        open={moveTargets !== null}
+        onOpenChange={(open) => {
+          if (!open && !move.isPending) setMoveTargets(null)
+        }}
+        title={t('Move to Group')}
+        desc={t('Select a group')}
+        confirmText={t('Move')}
+        disabled={
+          !moveTargets?.length ||
+          destination === undefined ||
+          destination === groupId
+        }
+        isLoading={move.isPending}
+        handleConfirm={() => {
+          if (
+            moveTargets?.length &&
+            destination !== undefined &&
+            !move.isPending
+          ) {
+            move.mutate({ targets: moveTargets, destination })
+          }
+        }}
+      >
+        <ResourceGroupSelect
+          groups={groups ?? []}
+          value={destination}
+          onChange={setDestination}
+          disabled={move.isPending}
+        />
+      </ConfirmDialog>
 
       <ApiKeysMultiDeleteDialog
         open={showDeleteConfirm}

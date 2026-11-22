@@ -761,4 +761,19 @@ func TestSharedUsageSessionChecksScopeExpiryAndCurrentAccess(t *testing.T) {
 
 	require.NoError(t, model.DB.Model(&token).Update("status", common.TokenStatusDisabled).Error)
 	assert.Equal(t, http.StatusUnauthorized, request(http.MethodGet, path+"/totals", "same-origin", "", cookie).Code)
+
+	// Plain HTTP requests without SessionCookieSecure omit Secure so LAN HTTP browsers retain the cookie.
+	require.NoError(t, model.DB.Model(&token).Update("status", common.TokenStatusEnabled).Error)
+	prevSecure := common.SessionCookieSecure
+	common.SessionCookieSecure = false
+	t.Cleanup(func() { common.SessionCookieSecure = prevSecure })
+	httpReq := httptest.NewRequest(http.MethodPost, "http://192.168.31.233:3000"+base, nil)
+	httpReq.Header.Set("X-Shared-Portal", "1")
+	httpReq.Header.Set("Sec-Fetch-Site", "same-origin")
+	httpReq.Header.Set("Authorization", "Bearer sk-"+token.Key)
+	httpRes := httptest.NewRecorder()
+	router.ServeHTTP(httpRes, httpReq)
+	require.Equal(t, http.StatusOK, httpRes.Code)
+	require.Len(t, httpRes.Result().Cookies(), 1)
+	assert.False(t, httpRes.Result().Cookies()[0].Secure)
 }

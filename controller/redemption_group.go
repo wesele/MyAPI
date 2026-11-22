@@ -22,7 +22,7 @@ func ListRedemptionGroups(c *gin.Context) {
 }
 
 func CreateRedemptionGroup(c *gin.Context) {
-	name, err := bindRedemptionGroupName(c)
+	name, err := bindGroupName(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -42,7 +42,7 @@ func RenameRedemptionGroup(c *gin.Context) {
 		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
-	name, err := bindRedemptionGroupName(c)
+	name, err := bindGroupName(c)
 	if err == nil {
 		err = model.RenameRedemptionGroup(id, name)
 	}
@@ -120,7 +120,7 @@ func MoveRedemptionGroupMembers(c *gin.Context) {
 	common.ApiSuccess(c, nil)
 }
 
-func bindRedemptionGroupName(c *gin.Context) (string, error) {
+func bindGroupName(c *gin.Context) (string, error) {
 	var request struct {
 		Name string `json:"name"`
 	}

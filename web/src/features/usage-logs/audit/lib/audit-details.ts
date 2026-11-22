@@ -61,6 +61,12 @@ const TOKEN_AUDIT_OPERATIONS: Record<
   },
   'token.delete_batch': { labelKey: 'Batch delete API tokens' },
   'token.key_view_batch': { labelKey: 'View API token keys in batch' },
+  'token.group_create': { labelKey: 'Create API key group' },
+  'token.group_rename': { labelKey: 'Rename API key group' },
+  'token.group_delete': { labelKey: 'Delete API key group' },
+  'token.group_disable': { labelKey: 'Disable API key group' },
+  'token.group_move': { labelKey: 'Move API keys to group' },
+  'token.group_export': { labelKey: 'Export API key group' },
 }
 
 export type AuditDetailField = {

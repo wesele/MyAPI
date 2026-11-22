@@ -752,6 +752,18 @@ export const STATIC_I18N_KEYS = [
   'API token batch deletion',
   'API token key access',
   'API token batch key access',
+  'Create API key group',
+  'Rename API key group',
+  'Delete API key group',
+  'Disable API key group',
+  'Move API keys to group',
+  'Export API key group',
+  'API token group creation',
+  'API token group rename',
+  'API token group deletion',
+  'API token group disable',
+  'API token group move',
+  'API token group export',
 
   // Channel status audit events
   "View other accounts' audit logs",
@@ -934,4 +946,10 @@ export const STATIC_I18N_KEYS = [
   'Channel priorities changed. Refresh and try again.',
   'Invalid channel priority move',
   'Channel priority is outside the sortable range',
+  // WeChat Official Account message template validation & claim errors.
+  'Include the redemption code variable or leave the message blank',
+  'Message template cannot exceed 500 characters',
+  'Message template must include {{placeholder}}',
+  'Claim record not found',
+  'Could not load WeChat redemption claims',
 ] as const

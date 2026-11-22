@@ -290,3 +290,47 @@ func TestGlobalWebRateLimitCountsFrontendFilesInStaticBucket(t *testing.T) {
 		assert.Equal(t, "1", webCount)
 	})
 }
+
+func TestSharedTrialRateLimitRemainsActiveWhenCriticalDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previousCriticalEnable := common.CriticalRateLimitEnable
+	previousCriticalNum := common.CriticalRateLimitNum
+	previousCriticalDuration := common.CriticalRateLimitDuration
+	previousGlobalAPIEnable := common.GlobalApiRateLimitEnable
+	previousSearchEnable := common.SearchRateLimitEnable
+	t.Cleanup(func() {
+		common.CriticalRateLimitEnable = previousCriticalEnable
+		common.CriticalRateLimitNum = previousCriticalNum
+		common.CriticalRateLimitDuration = previousCriticalDuration
+		common.GlobalApiRateLimitEnable = previousGlobalAPIEnable
+		common.SearchRateLimitEnable = previousSearchEnable
+	})
+
+	common.CriticalRateLimitEnable = false
+	common.CriticalRateLimitNum = 2
+	common.CriticalRateLimitDuration = 30
+	common.GlobalApiRateLimitEnable = false
+	common.SearchRateLimitEnable = false
+
+	redisServer, _ := useRateLimitMiniRedis(t)
+	router := gin.New()
+	require.NoError(t, router.SetTrustedProxies(nil))
+	router.GET("/critical", CriticalRateLimit(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.GET("/api", GlobalAPIRateLimit(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.GET("/search", func(c *gin.Context) { c.Set("id", 7) }, SearchRateLimit(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.GET("/trial-key", SharedTrialRateLimit(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	const remoteAddr = "192.0.2.80:12345"
+	for range 4 {
+		assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/critical", remoteAddr).Code)
+		assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/api", remoteAddr).Code)
+		assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/search", remoteAddr).Code)
+	}
+
+	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/trial-key", remoteAddr).Code)
+	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/trial-key", remoteAddr).Code)
+	limited := performRateLimitRequest(router, "/trial-key", remoteAddr)
+	assert.Equal(t, http.StatusTooManyRequests, limited.Code)
+	assert.True(t, redisServer.Exists(redisIPRateLimitKey("ST", "192.0.2.80")))
+	assert.False(t, redisServer.Exists(redisIPRateLimitKey("CT", "192.0.2.80")))
+}

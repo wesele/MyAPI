@@ -16,10 +16,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { TFunction } from 'i18next'
+
 import { readTokenTierChain } from '@/features/pricing/lib/billing-expression/display'
 import { compileBillingExpression } from '@/features/pricing/lib/billing-expression/parser'
 import { calculateTokenPrice } from '@/features/pricing/lib/price'
 import type { PricingModel } from '@/features/pricing/types'
+import { normalizeInterfaceLanguage } from '@/i18n/languages'
+import { formatNumber } from '@/lib/format'
 
 import type { ReferencePrice } from './api'
 
@@ -84,7 +88,36 @@ export function createQuoteFormatters(locale: string | undefined, rate = 0) {
         original.amount
       )
     },
+    fold: (usd: number, original: ReturnType<typeof getReferenceAmount>) => {
+      if (!original || (original.currency === 'CNY' && !hasRate)) return
+      return discountFold(
+        original.currency === 'CNY' ? usd * rate : usd,
+        original.amount
+      )
+    },
   }
+}
+
+export function formatDiscountLabel(options: {
+  t: TFunction
+  language?: string
+  locale?: string
+  usd: number
+  original: ReturnType<typeof getReferenceAmount>
+  format: ReturnType<typeof createQuoteFormatters>
+}): string | undefined {
+  if (normalizeInterfaceLanguage(options.language) === 'zhCN') {
+    const fold = options.format.fold(options.usd, options.original)
+    if (fold === undefined) return undefined
+    return options.t('{{rate}}/10 of official price', {
+      rate: formatNumber(fold, options.locale),
+    })
+  }
+  const discount = options.format.discount(options.usd, options.original)
+  if (discount === undefined || discount <= 0) return undefined
+  return options.t('{{discount}}% off', {
+    discount: formatNumber(discount, options.locale),
+  })
 }
 
 export function getPublicModelGroup(
@@ -160,4 +193,22 @@ export function discountPercent(current: number, original: number | undefined) {
     return undefined
   }
   return Math.round((1 - current / original) * 1e4) / 100
+}
+
+export function discountFold(current: number, original: number | undefined) {
+  if (
+    !original ||
+    !Number.isFinite(current) ||
+    current < 0 ||
+    current >= original
+  ) {
+    return undefined
+  }
+  if (current === 0) return 0
+  const fold = (current / original) * 10
+  if (fold >= 0.1) {
+    const rounded = Math.round(fold * 10) / 10
+    return rounded >= 10 ? undefined : rounded
+  }
+  return Math.max(0.01, Math.round(fold * 100) / 100)
 }

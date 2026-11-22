@@ -16,15 +16,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import i18next from 'i18next'
 import { expect, test } from 'vitest'
 
 import type { PricingModel } from '@/features/pricing/types'
 import { toIntlLocale } from '@/i18n/languages'
+import zhTW from '@/i18n/locales/zh-TW.json'
+import zhCN from '@/i18n/locales/zh.json'
 
 import {
   comparablePrices,
   createQuoteFormatters,
+  discountFold,
   discountPercent,
+  formatDiscountLabel,
   getReferenceAmount,
 } from '../pricing'
 
@@ -52,9 +57,66 @@ test('compares input and output and hides the discount without a lower comparabl
       format.discount(price.current, getReferenceAmount(reference, price.kind))
     )
   ).toEqual([70, 70])
+  expect(
+    prices.map((price) =>
+      format.fold(price.current, getReferenceAmount(reference, price.kind))
+    )
+  ).toEqual([3, 3])
   expect(discountPercent(1, 1)).toBeUndefined()
   expect(discountPercent(2, 1)).toBeUndefined()
   expect(discountPercent(0.3, undefined)).toBeUndefined()
+  expect(discountFold(0.1, 1)).toBe(1)
+  expect(discountFold(0.1429, 1)).toBe(1.4)
+  expect(discountFold(0.004, 1)).toBe(0.04)
+  expect(discountFold(0, 1)).toBe(0)
+  expect(discountFold(0.996, 1)).toBeUndefined()
+  expect(discountFold(1, 1)).toBeUndefined()
+  expect(discountFold(2, 1)).toBeUndefined()
+  expect(discountFold(0.3, undefined)).toBeUndefined()
+})
+
+test('formats discount as fold in Chinese locales and percentage off in English', async () => {
+  const i18n = i18next.createInstance()
+  await i18n.init({
+    lng: 'zhCN',
+    fallbackLng: 'en',
+    resources: {
+      en: { translation: { '{{discount}}% off': '{{discount}}% off' } },
+      zhCN,
+      zhTW,
+    },
+  })
+  const format = createQuoteFormatters('zh-CN', 7.3)
+  expect(
+    formatDiscountLabel({
+      t: i18n.getFixedT('zhCN'),
+      language: 'zhCN',
+      locale: 'zh-CN',
+      usd: 0.1,
+      original: { amount: 1, currency: 'USD' },
+      format,
+    })
+  ).toBe('1折')
+  expect(
+    formatDiscountLabel({
+      t: i18n.getFixedT('zhTW'),
+      language: 'zhTW',
+      locale: 'zh-TW',
+      usd: 0.1429,
+      original: { amount: 1, currency: 'USD' },
+      format,
+    })
+  ).toBe('1.4折')
+  expect(
+    formatDiscountLabel({
+      t: i18n.getFixedT('en'),
+      language: 'en',
+      locale: 'en',
+      usd: 0.1,
+      original: { amount: 1, currency: 'USD' },
+      format,
+    })
+  ).toBe('90% off')
 })
 
 test('compares a flat token expression and skips context tiers and request multipliers', () => {

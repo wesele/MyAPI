@@ -33,6 +33,12 @@ type ModelRequest struct {
 
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		releaseSlot, ok := AcquireTokenConcurrencySlot(c)
+		if !ok {
+			abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgTokenConcurrencyLimitReached))
+			return
+		}
+		defer releaseSlot()
 		var channel *model.Channel
 		defer func() {
 			if c.Writer.Status() >= 400 {

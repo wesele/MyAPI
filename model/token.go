@@ -27,11 +27,14 @@ type Token struct {
 	AllowIps           *string        `json:"allow_ips" gorm:"default:''"`
 	UsedQuota          int            `json:"used_quota" gorm:"default:0"` // used quota
 	Group              string         `json:"group" gorm:"default:''"`
+	GroupId            int            `json:"group_id" gorm:"not null;default:0;index"`
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
 	AutoGroups         string         `json:"-" gorm:"type:text"`
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 	// 允许用此令牌查询所属用户的额度；新建令牌默认开启，已有令牌升级后保持关闭
 	AllowUserQuotaQuery bool   `json:"allow_user_quota_query"`
+	ConcurrencyLimit    int    `json:"concurrency_limit" gorm:"not null;default:0"`
+	TrialRefilledAt     int64  `json:"-" gorm:"bigint;default:0"`
 	CacheExpiresAt      int64  `json:"-" gorm:"-"`
 	CacheMAC            string `json:"-" gorm:"-"`
 }
@@ -161,6 +164,10 @@ func validateLikePattern(input string) error {
 const searchHardLimit = 100
 
 func SearchUserTokens(userId int, keyword string, token string, offset int, limit int) (tokens []*Token, total int64, err error) {
+	return SearchUserTokensInGroup(userId, keyword, token, nil, offset, limit)
+}
+
+func SearchUserTokensInGroup(userId int, keyword string, token string, groupId *int, offset int, limit int) (tokens []*Token, total int64, err error) {
 	// model 层强制截断
 	if limit <= 0 || limit > searchHardLimit {
 		limit = searchHardLimit
@@ -188,6 +195,9 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 	}
 
 	baseQuery := DB.Model(&Token{}).Where("user_id = ?", userId)
+	if groupId != nil {
+		baseQuery = baseQuery.Where("group_id = ?", *groupId)
+	}
 
 	// 非空才加 LIKE 条件，空则跳过（不过滤该字段）
 	if keyword != "" {
@@ -316,8 +326,12 @@ func (token *Token) Update() (err error) {
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
 		common.SysLog(common.LogText("failed to invalidate token cache before update: %s", cacheErr.Error()))
 	}
-	return DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups",
+	return token.updateWithDB(DB)
+}
+
+func (token *Token) updateWithDB(tx *gorm.DB) error {
+	return tx.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
+		"model_limits_enabled", "model_limits", "allow_ips", "group", "group_id", "cross_group_retry", "auto_groups",
 		"allow_user_quota_query").Updates(token).Error
 }
 

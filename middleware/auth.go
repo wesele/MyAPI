@@ -701,6 +701,16 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 	}
 	common.SetContextKey(c, constant.ContextKeyTokenGroup, token.Group)
 	common.SetContextKey(c, constant.ContextKeyTokenCrossGroupRetry, token.CrossGroupRetry)
+	concurrencyLimit := token.ConcurrencyLimit
+	if token.GroupId > 0 {
+		groupLimit, err := model.GetTokenGroupConcurrencyLimit(token.GroupId)
+		if err != nil {
+			common.SysLog(common.LogText("failed to get token group concurrency limit for group %d: %s", token.GroupId, err.Error()))
+		} else {
+			concurrencyLimit = groupLimit
+		}
+	}
+	common.SetContextKey(c, constant.ContextKeyTokenConcurrencyLimit, concurrencyLimit)
 	if token.AutoGroups != "" {
 		autoGroups, err := token.GetAutoGroups()
 		if err != nil {

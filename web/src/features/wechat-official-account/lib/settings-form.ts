@@ -24,6 +24,16 @@ export const wechatSettingsSchema = z.object({
   app_id: z.string(),
   original_id: z.string(),
   group_id: z.number().int().nonnegative(),
+  message_template: z
+    .string()
+    .refine(
+      (value) => value.replaceAll('\r\n', '\n').trim().length <= 500,
+      'Message template cannot exceed 500 characters'
+    )
+    .refine(
+      (value) => value.trim() === '' || value.includes('{{code}}'),
+      'Include the redemption code variable or leave the message blank'
+    ),
   token: z.string(),
   encoding_aes_key: z.string(),
 })
@@ -44,6 +54,7 @@ export function wechatSettingsFormValues(
   const { token_configured: _token, key_configured: _key, ...values } = settings
   return {
     ...values,
+    message_template: values.message_template ?? '',
     token: '',
     encoding_aes_key: '',
   }

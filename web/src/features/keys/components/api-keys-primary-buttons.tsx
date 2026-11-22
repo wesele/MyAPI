@@ -16,9 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ChevronDown, Globe, Plus } from 'lucide-react'
+import { useMutation } from '@tanstack/react-query'
+import { Ban, ChevronDown, Globe, Plus } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CopyButton } from '@/components/copy-button'
 import { LoadingState } from '@/components/loading-state'
 import { Button } from '@/components/ui/button'
@@ -38,14 +42,29 @@ import {
 } from '@/components/ui/popover'
 import { useApiInfo } from '@/features/dashboard/hooks/use-status-data'
 import { useStatus } from '@/hooks/use-status'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
+import { disableApiKeyGroupKeys } from '../api'
+import type { ApiKeyGroup } from '../types'
 import { useApiKeys } from './api-keys-provider'
 
-export function ApiKeysPrimaryButtons() {
+export function ApiKeysPrimaryButtons(props: { currentGroup?: ApiKeyGroup }) {
   const { t } = useTranslation()
-  const { setOpen } = useApiKeys()
+  const { setOpen, triggerRefresh } = useApiKeys()
   const { status, loading } = useStatus()
   const { items } = useApiInfo()
+  const [disableTarget, setDisableTarget] = useState<ApiKeyGroup>()
+  const currentDisableTarget =
+    disableTarget?.id === props.currentGroup?.id ? disableTarget : undefined
+  const disableGroup = useMutation({
+    mutationFn: async (groupId: number) =>
+      requireServerSuccess(await disableApiKeyGroupKeys(groupId)).data ?? 0,
+    onSuccess: (count) => {
+      toast.success(t('Disabled {{count}} API keys', { count }))
+      triggerRefresh()
+      setDisableTarget(undefined)
+    },
+  })
   const serverAddress =
     (typeof status?.server_address === 'string' &&
       status.server_address.trim()) ||
@@ -61,61 +80,91 @@ export function ApiKeysPrimaryButtons() {
       ]
 
   return (
-    <div className='flex flex-wrap gap-2'>
-      <Popover>
-        <PopoverTrigger render={<Button variant='outline' size='sm' />}>
-          <Globe aria-hidden='true' />
-          {t('API Addresses')}
-          <ChevronDown aria-hidden='true' />
-        </PopoverTrigger>
-        <PopoverContent
-          align='end'
-          className='max-h-[min(28rem,var(--available-height))] w-96 max-w-[calc(100vw-2rem)] overflow-y-auto'
+    <>
+      <div className='flex flex-wrap gap-2'>
+        <Button
+          size='sm'
+          variant='outline'
+          disabled={!props.currentGroup || disableGroup.isPending}
+          onClick={() => setDisableTarget(props.currentGroup)}
         >
-          <PopoverTitle>{t('API Addresses')}</PopoverTitle>
-          {loading ? (
-            <LoadingState inline size='sm' message={t('Loading...')} />
-          ) : (
-            <ItemGroup>
-              {addresses.map((address) => (
-                <Item
-                  key={address.url}
-                  role='listitem'
-                  variant='muted'
-                  size='xs'
-                  className='flex-nowrap items-start'
-                >
-                  <ItemContent className='min-w-0 gap-1'>
-                    <ItemTitle className='line-clamp-none break-all'>
-                      {address.route}
-                    </ItemTitle>
-                    <code className='text-xs break-all select-text'>
-                      {address.url}
-                    </code>
-                    {address.description && (
-                      <ItemDescription className='line-clamp-none break-words'>
-                        {address.description}
-                      </ItemDescription>
-                    )}
-                  </ItemContent>
-                  <ItemActions>
-                    <CopyButton
-                      value={address.url}
-                      size='sm'
-                      tooltip={t('Copy API URL')}
-                      aria-label={`${t('Copy API URL')}: ${address.url}`}
-                    />
-                  </ItemActions>
-                </Item>
-              ))}
-            </ItemGroup>
-          )}
-        </PopoverContent>
-      </Popover>
-      <Button size='sm' onClick={() => setOpen('create')}>
-        <Plus className='h-4 w-4' />
-        {t('Create API Key')}
-      </Button>
-    </div>
+          <Ban className='text-destructive size-4' aria-hidden='true' />
+          {t('Disable Current Group')}
+        </Button>
+        <Popover>
+          <PopoverTrigger render={<Button variant='outline' size='sm' />}>
+            <Globe aria-hidden='true' />
+            {t('API Addresses')}
+            <ChevronDown aria-hidden='true' />
+          </PopoverTrigger>
+          <PopoverContent
+            align='end'
+            className='max-h-[min(28rem,var(--available-height))] w-96 max-w-[calc(100vw-2rem)] overflow-y-auto'
+          >
+            <PopoverTitle>{t('API Addresses')}</PopoverTitle>
+            {loading ? (
+              <LoadingState inline size='sm' message={t('Loading...')} />
+            ) : (
+              <ItemGroup>
+                {addresses.map((address) => (
+                  <Item
+                    key={address.url}
+                    role='listitem'
+                    variant='muted'
+                    size='xs'
+                    className='flex-nowrap items-start'
+                  >
+                    <ItemContent className='min-w-0 gap-1'>
+                      <ItemTitle className='line-clamp-none break-all'>
+                        {address.route}
+                      </ItemTitle>
+                      <code className='text-xs break-all select-text'>
+                        {address.url}
+                      </code>
+                      {address.description && (
+                        <ItemDescription className='line-clamp-none break-words'>
+                          {address.description}
+                        </ItemDescription>
+                      )}
+                    </ItemContent>
+                    <ItemActions>
+                      <CopyButton
+                        value={address.url}
+                        size='sm'
+                        tooltip={t('Copy API URL')}
+                        aria-label={`${t('Copy API URL')}: ${address.url}`}
+                      />
+                    </ItemActions>
+                  </Item>
+                ))}
+              </ItemGroup>
+            )}
+          </PopoverContent>
+        </Popover>
+        <Button size='sm' onClick={() => setOpen('create')}>
+          <Plus className='h-4 w-4' />
+          {t('Create API Key')}
+        </Button>
+      </div>
+
+      <ConfirmDialog
+        destructive
+        open={currentDisableTarget !== undefined}
+        onOpenChange={(open) => {
+          if (!open && !disableGroup.isPending) setDisableTarget(undefined)
+        }}
+        handleConfirm={() => {
+          if (currentDisableTarget && !disableGroup.isPending) {
+            disableGroup.mutate(currentDisableTarget.id)
+          }
+        }}
+        isLoading={disableGroup.isPending}
+        title={t('Disable Current Group')}
+        desc={t('Disable all enabled API keys in “{{group}}”?', {
+          group: currentDisableTarget?.name ?? '',
+        })}
+        confirmText={disableGroup.isPending ? t('Disabling...') : t('Disable')}
+      />
+    </>
   )
 }

@@ -18,8 +18,10 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 type streamedBodyStorage struct {
@@ -523,4 +525,168 @@ func TestSharedEndpointRebindsToBoundNewAPIExtension(t *testing.T) {
 	require.Nil(t, SetupContextForSelectedChannel(c, channel, "task-model"))
 	assert.Equal(t, "alpha", c.GetString("task_plugin_key"), "the first bound candidate executes regardless of the earlier pin")
 	assert.Equal(t, "alpha", c.MustGet(jsplugin.ContextKeyPinnedEndpoint).(jsplugin.PinnedEndpoint).Plugin.Meta.Key)
+}
+
+func TestDistributeEnforcesTokenConcurrencyLimit(t *testing.T) {
+	require.NoError(t, i18n.Init())
+
+	newConcurrencyRouter := func(token *model.Token, enter chan struct{}, release chan struct{}) *gin.Engine {
+		r := gin.New()
+		r.POST("/v1/chat/completions", func(c *gin.Context) {
+			require.NoError(t, SetupContextForToken(c, token))
+			c.Next()
+		}, TokenConcurrencyLimit(), func(c *gin.Context) {
+			if enter != nil {
+				enter <- struct{}{}
+				<-release
+			}
+			c.Status(http.StatusOK)
+		})
+		return r
+	}
+
+	t.Run("concurrency limit 1 rejects overlapping request and recovers after completion", func(t *testing.T) {
+		enter := make(chan struct{})
+		release := make(chan struct{})
+		token := &model.Token{Id: 910001, UserId: 1, Key: "conc-1", ConcurrencyLimit: 1}
+		router := newConcurrencyRouter(token, enter, release)
+
+		firstDone := make(chan int, 1)
+		go func() {
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			firstDone <- rec.Code
+		}()
+
+		<-enter
+
+		// Second overlapping request must be rejected immediately with 429.
+		secondReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+		secondReq.Header.Set("Content-Type", "application/json")
+		secondRec := httptest.NewRecorder()
+		router.ServeHTTP(secondRec, secondReq)
+		assert.Equal(t, http.StatusTooManyRequests, secondRec.Code)
+
+		// Distribute itself must also enforce the same slot before channel selection.
+		distRouter := gin.New()
+		distRouter.POST("/v1/chat/completions", func(c *gin.Context) {
+			require.NoError(t, SetupContextForToken(c, token))
+			c.Next()
+		}, Distribute(), func(c *gin.Context) {
+			c.Status(http.StatusOK)
+		})
+		distReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+		distReq.Header.Set("Content-Type", "application/json")
+		distRec := httptest.NewRecorder()
+		distRouter.ServeHTTP(distRec, distReq)
+		assert.Equal(t, http.StatusTooManyRequests, distRec.Code)
+
+		close(release)
+		assert.Equal(t, http.StatusOK, <-firstDone)
+
+		// Once the first request finishes, the next request succeeds.
+		thirdRouter := newConcurrencyRouter(token, nil, nil)
+		thirdReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+		thirdReq.Header.Set("Content-Type", "application/json")
+		thirdRec := httptest.NewRecorder()
+		thirdRouter.ServeHTTP(thirdRec, thirdReq)
+		assert.Equal(t, http.StatusOK, thirdRec.Code)
+	})
+
+	t.Run("concurrency limit 0 allows concurrent requests", func(t *testing.T) {
+		enter := make(chan struct{})
+		release := make(chan struct{})
+		token := &model.Token{Id: 910002, UserId: 1, Key: "conc-0", ConcurrencyLimit: 0}
+		router := newConcurrencyRouter(token, enter, release)
+
+		firstDone := make(chan int, 1)
+		go func() {
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			firstDone <- rec.Code
+		}()
+
+		<-enter
+		secondRouter := newConcurrencyRouter(token, nil, nil)
+		secondReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+		secondReq.Header.Set("Content-Type", "application/json")
+		secondRec := httptest.NewRecorder()
+		secondRouter.ServeHTTP(secondRec, secondReq)
+		assert.Equal(t, http.StatusOK, secondRec.Code)
+
+		close(release)
+		assert.Equal(t, http.StatusOK, <-firstDone)
+	})
+
+	t.Run("group concurrency limit governs grouped tokens and overrides token limit", func(t *testing.T) {
+		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		require.NoError(t, err)
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		sqlDB.SetMaxOpenConns(1)
+
+		previousDB, previousType := model.DB, common.MainDatabaseType()
+		model.DB = db
+		common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+		t.Cleanup(func() {
+			model.DB = previousDB
+			common.SetMainDatabaseType(previousType)
+			_ = sqlDB.Close()
+		})
+		require.NoError(t, db.AutoMigrate(&model.TokenGroup{}))
+
+		limitedGroup, err := model.CreateTokenGroup(1, "Limited", 1)
+		require.NoError(t, err)
+		unlimitedGroup, err := model.CreateTokenGroup(1, "Unlimited", 0)
+		require.NoError(t, err)
+
+		enter := make(chan struct{})
+		release := make(chan struct{})
+		groupedToken := &model.Token{Id: 910003, UserId: 1, Key: "conc-group-1", GroupId: limitedGroup.Id, ConcurrencyLimit: 0}
+		router := newConcurrencyRouter(groupedToken, enter, release)
+
+		firstDone := make(chan int, 1)
+		go func() {
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			firstDone <- rec.Code
+		}()
+
+		<-enter
+		secondReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+		secondReq.Header.Set("Content-Type", "application/json")
+		secondRec := httptest.NewRecorder()
+		newConcurrencyRouter(groupedToken, nil, nil).ServeHTTP(secondRec, secondReq)
+		assert.Equal(t, http.StatusTooManyRequests, secondRec.Code)
+		close(release)
+		assert.Equal(t, http.StatusOK, <-firstDone)
+
+		// Group limit 0 overrides a legacy non-zero token.ConcurrencyLimit.
+		enter2 := make(chan struct{})
+		release2 := make(chan struct{})
+		legacyToken := &model.Token{Id: 910004, UserId: 1, Key: "conc-group-0", GroupId: unlimitedGroup.Id, ConcurrencyLimit: 1}
+		router2 := newConcurrencyRouter(legacyToken, enter2, release2)
+
+		firstDone2 := make(chan int, 1)
+		go func() {
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router2.ServeHTTP(rec, req)
+			firstDone2 <- rec.Code
+		}()
+
+		<-enter2
+		secondRec2 := httptest.NewRecorder()
+		newConcurrencyRouter(legacyToken, nil, nil).ServeHTTP(secondRec2, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`)))
+		assert.Equal(t, http.StatusOK, secondRec2.Code)
+		close(release2)
+		assert.Equal(t, http.StatusOK, <-firstDone2)
+	})
 }

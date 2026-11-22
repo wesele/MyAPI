@@ -193,6 +193,137 @@ func Redeem(key string, userId int) (quota int, err error) {
 	return redemption.Quota, nil
 }
 
+// RedeemToAdminToken consumes a redemption code and issues a single-concurrency
+// API token under the 'admin' account, matching the redemption's group name.
+func RedeemToAdminToken(key string) (*Token, error) {
+	if key == "" {
+		return nil, errors.New("redemption code not provided")
+	}
+	tokenKey, err := common.GenerateKey()
+	if err != nil {
+		return nil, err
+	}
+
+	keyCol := "`key`"
+	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		keyCol = `"key"`
+	}
+
+	var redemption Redemption
+	var createdToken *Token
+	var tokenGroupId int
+
+	common.RandomSleep()
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		var admin User
+		if err := tx.Where("username = ? AND status = ?", "admin", common.UserStatusEnabled).First(&admin).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("admin user not available")
+			}
+			return err
+		}
+
+		if err := lockForUpdate(tx).Where(keyCol+" = ?", key).First(&redemption).Error; err != nil {
+			return errors.New("invalid redemption code")
+		}
+		if redemption.Status != common.RedemptionCodeStatusEnabled {
+			return errors.New("redemption code already used")
+		}
+		now := common.GetTimestamp()
+		if redemption.ExpiredTime != 0 && redemption.ExpiredTime < now {
+			return errors.New("redemption code expired")
+		}
+		if redemption.Quota <= 0 {
+			return errors.New("redemption quota must be positive")
+		}
+
+		// Compare-and-swap on status so concurrent redeems cannot issue two tokens
+		// for the same code even without row locks (e.g. on SQLite).
+		result := tx.Model(&Redemption{}).
+			Where("id = ? AND status = ?", redemption.Id, common.RedemptionCodeStatusEnabled).
+			Updates(map[string]any{
+				"redeemed_time": now,
+				"status":        common.RedemptionCodeStatusUsed,
+				"used_user_id":  admin.Id,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return errors.New("redemption code already used")
+		}
+
+		if redemption.GroupId > 0 {
+			var redemptionGroup RedemptionGroup
+			groupErr := tx.First(&redemptionGroup, "id = ?", redemption.GroupId).Error
+			if groupErr != nil && !errors.Is(groupErr, gorm.ErrRecordNotFound) {
+				return groupErr
+			}
+			if groupErr == nil && redemptionGroup.Name != "" {
+				var tokenGroup TokenGroup
+				err := tx.Where("user_id = ? AND name = ?", admin.Id, redemptionGroup.Name).Order("id").First(&tokenGroup).Error
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					if err := lockForUpdate(tx).Select("id").First(&admin, "id = ?", admin.Id).Error; err != nil {
+						return err
+					}
+					err = tx.Where("user_id = ? AND name = ?", admin.Id, redemptionGroup.Name).Order("id").First(&tokenGroup).Error
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						tokenGroup = TokenGroup{
+							UserId:           admin.Id,
+							Name:             redemptionGroup.Name,
+							ConcurrencyLimit: 1,
+						}
+						if err := tx.Create(&tokenGroup).Error; err != nil {
+							return err
+						}
+					} else if err != nil {
+						return err
+					}
+				} else if err != nil {
+					return err
+				}
+				tokenGroupId = tokenGroup.Id
+			}
+		}
+
+		tokenExpiredTime := redemption.ExpiredTime
+		if tokenExpiredTime == 0 {
+			tokenExpiredTime = -1
+		}
+		tokenName := redemption.Name
+		if tokenName == "" {
+			tokenName = "redeem"
+		}
+
+		tokenConcurrencyLimit := 0
+		if tokenGroupId == 0 {
+			tokenConcurrencyLimit = 1
+		}
+
+		createdToken = &Token{
+			UserId:              admin.Id,
+			Name:                tokenName,
+			Key:                 tokenKey,
+			Status:              common.TokenStatusEnabled,
+			CreatedTime:         now,
+			AccessedTime:        now,
+			ExpiredTime:         tokenExpiredTime,
+			RemainQuota:         redemption.Quota,
+			UnlimitedQuota:      false,
+			GroupId:             tokenGroupId,
+			ConcurrencyLimit:    tokenConcurrencyLimit,
+			AllowUserQuotaQuery: false,
+		}
+		return tx.Create(createdToken).Error
+	})
+	if err != nil {
+		common.SysError(common.LogText("redeem to admin token failed: %s", err.Error()))
+		return nil, ErrRedeemFailed
+	}
+	common.SysLog(common.LogText("redeemed code ID %d into admin token ID %d (quota=%s, group_id=%d)", redemption.Id, createdToken.Id, logger.FormatQuota(redemption.Quota), tokenGroupId))
+	return createdToken, nil
+}
+
 func (redemption *Redemption) validateQuota() error {
 	if redemption.Quota <= 0 {
 		return errors.New("redemption quota must be positive")

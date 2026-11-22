@@ -194,6 +194,23 @@ func CriticalRateLimit() func(c *gin.Context) {
 	return defNext
 }
 
+// SharedTrialRateLimit rate-limits anonymous free trial key claims per IP
+// independently of CriticalRateLimitEnable, so disabling global critical rate
+// limits does not remove free-key abuse protection.
+func SharedTrialRateLimit() func(c *gin.Context) {
+	return rateLimitFactory(common.CriticalRateLimitNum, common.CriticalRateLimitDuration, "ST")
+}
+
+// SharedUsageRateLimit isolates read-only shared key lookup session creation
+// from the tighter shared CT auth/redemption bucket so repeated page refreshes
+// do not trigger false lockouts.
+func SharedUsageRateLimit() func(c *gin.Context) {
+	if common.CriticalRateLimitEnable {
+		return rateLimitFactory(120, 180, "SU")
+	}
+	return defNext
+}
+
 func UserCriticalRateLimit(scope string) func(c *gin.Context) {
 	if !common.CriticalRateLimitEnable {
 		return defNext

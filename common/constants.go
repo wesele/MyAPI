@@ -242,7 +242,7 @@ var (
 	DownloadRateLimitDuration int64 = 60
 
 	// Per-user search rate limit (applies after authentication, keyed by user ID)
-	SearchRateLimitEnable         = true
+	SearchRateLimitEnable         = false
 	SearchRateLimitNum            = 10
 	SearchRateLimitDuration int64 = 60
 )

@@ -388,3 +388,184 @@ func TestRedeemConcurrentSingleSuccess(t *testing.T) {
 	require.NoError(t, DB.First(&user, "id = ?", userId).Error)
 	assert.Equal(t, 300, user.Quota, "quota must be credited exactly once")
 }
+
+func setupAdminTokenRedeemFixture(t *testing.T, adminStatus int) *User {
+	t.Helper()
+	require.NoError(t, DB.AutoMigrate(&User{}, &Token{}, &TokenGroup{}, &Redemption{}, &RedemptionGroup{}))
+	t.Cleanup(func() {
+		DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().Delete(&Token{})
+		DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&TokenGroup{})
+		DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().Delete(&Redemption{})
+		DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&RedemptionGroup{})
+		DB.Exec("DELETE FROM users")
+	})
+
+	DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().Delete(&Token{})
+	DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&TokenGroup{})
+	DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().Delete(&Redemption{})
+	DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&RedemptionGroup{})
+	DB.Exec("DELETE FROM users")
+
+	if adminStatus == 0 {
+		return nil
+	}
+	admin := &User{
+		Username: "admin",
+		Password: "password",
+		Role:     common.RoleAdminUser,
+		Status:   adminStatus,
+		Quota:    100000,
+	}
+	require.NoError(t, DB.Create(admin).Error)
+	return admin
+}
+
+func TestRedeemToAdminToken(t *testing.T) {
+	t.Run("grouped and ungrouped redemptions create expected admin tokens", func(t *testing.T) {
+		admin := setupAdminTokenRedeemFixture(t, common.UserStatusEnabled)
+
+		group, err := CreateRedemptionGroup("VIP-Batch")
+		require.NoError(t, err)
+
+		futureExpiry := common.GetTimestamp() + 3600
+		codes := []Redemption{
+			{
+				Name:        "vip-code-1",
+				Key:         "20000000000000000000000000000001",
+				Status:      common.RedemptionCodeStatusEnabled,
+				Quota:       5000,
+				ExpiredTime: 0,
+				CreatedTime: common.GetTimestamp(),
+			},
+			{
+				Name:        "vip-code-2",
+				Key:         "20000000000000000000000000000002",
+				Status:      common.RedemptionCodeStatusEnabled,
+				Quota:       3000,
+				ExpiredTime: futureExpiry,
+				CreatedTime: common.GetTimestamp(),
+			},
+		}
+		require.NoError(t, CreateGroupedRedemptions(group.Id, codes))
+
+		ungrouped := Redemption{
+			Name:        "ungrouped-code",
+			Key:         "20000000000000000000000000000003",
+			Status:      common.RedemptionCodeStatusEnabled,
+			Quota:       2000,
+			ExpiredTime: 0,
+			CreatedTime: common.GetTimestamp(),
+		}
+		require.NoError(t, ungrouped.Insert())
+
+		firstToken, err := RedeemToAdminToken("20000000000000000000000000000001")
+		require.NoError(t, err)
+		assert.Equal(t, admin.Id, firstToken.UserId)
+		assert.Equal(t, 5000, firstToken.RemainQuota)
+		assert.Equal(t, int64(-1), firstToken.ExpiredTime)
+		assert.Equal(t, 0, firstToken.ConcurrencyLimit)
+		assert.False(t, firstToken.AllowUserQuotaQuery)
+		assert.False(t, firstToken.UnlimitedQuota)
+		assert.Positive(t, firstToken.GroupId)
+
+		tokenGroups, err := ListTokenGroups(admin.Id)
+		require.NoError(t, err)
+		require.Len(t, tokenGroups, 1)
+		assert.Equal(t, "VIP-Batch", tokenGroups[0].Name)
+		assert.Equal(t, 1, tokenGroups[0].ConcurrencyLimit)
+		assert.Equal(t, tokenGroups[0].Id, firstToken.GroupId)
+
+		// Updating the group's concurrency limit is preserved when redeeming another code into it.
+		updatedLimit := 3
+		_, err = UpdateTokenGroup(admin.Id, tokenGroups[0].Id, tokenGroups[0].Name, &updatedLimit)
+		require.NoError(t, err)
+
+		// Second code in the same group reuses the same TokenGroup.
+		secondToken, err := RedeemToAdminToken("20000000000000000000000000000002")
+		require.NoError(t, err)
+		assert.Equal(t, tokenGroups[0].Id, secondToken.GroupId)
+		assert.Equal(t, futureExpiry, secondToken.ExpiredTime)
+		assert.Equal(t, 0, secondToken.ConcurrencyLimit)
+		assert.False(t, secondToken.AllowUserQuotaQuery)
+
+		tokenGroups, err = ListTokenGroups(admin.Id)
+		require.NoError(t, err)
+		assert.Len(t, tokenGroups, 1)
+		assert.Equal(t, 3, tokenGroups[0].ConcurrencyLimit)
+
+		// Ungrouped code produces an ungrouped token.
+		thirdToken, err := RedeemToAdminToken("20000000000000000000000000000003")
+		require.NoError(t, err)
+		assert.Equal(t, 0, thirdToken.GroupId)
+		assert.Equal(t, 2000, thirdToken.RemainQuota)
+		assert.Equal(t, int64(-1), thirdToken.ExpiredTime)
+		assert.Equal(t, 1, thirdToken.ConcurrencyLimit)
+		assert.False(t, thirdToken.AllowUserQuotaQuery)
+
+		// Reusing an already-redeemed code fails.
+		_, err = RedeemToAdminToken("20000000000000000000000000000001")
+		require.Error(t, err)
+
+		// Admin wallet quota is unchanged by token issuance.
+		var reloadedAdmin User
+		require.NoError(t, DB.First(&reloadedAdmin, admin.Id).Error)
+		assert.Equal(t, 100000, reloadedAdmin.Quota)
+	})
+
+	t.Run("missing or disabled admin fails without consuming code", func(t *testing.T) {
+		setupAdminTokenRedeemFixture(t, common.UserStatusDisabled)
+		code := Redemption{
+			Name:        "disabled-admin-code",
+			Key:         "20000000000000000000000000000004",
+			Status:      common.RedemptionCodeStatusEnabled,
+			Quota:       1000,
+			CreatedTime: common.GetTimestamp(),
+		}
+		require.NoError(t, code.Insert())
+
+		_, err := RedeemToAdminToken(code.Key)
+		require.Error(t, err)
+
+		var reloaded Redemption
+		require.NoError(t, DB.First(&reloaded, "key = ?", code.Key).Error)
+		assert.Equal(t, common.RedemptionCodeStatusEnabled, reloaded.Status)
+	})
+}
+
+func TestRedeemToAdminTokenConcurrentSingleSuccess(t *testing.T) {
+	admin := setupAdminTokenRedeemFixture(t, common.UserStatusEnabled)
+	const codeKey = "20000000000000000000000000000005"
+	code := Redemption{
+		Name:        "concurrent-code",
+		Key:         codeKey,
+		Status:      common.RedemptionCodeStatusEnabled,
+		Quota:       4000,
+		CreatedTime: common.GetTimestamp(),
+	}
+	require.NoError(t, code.Insert())
+
+	const goroutines = 5
+	results := make(chan *Token, goroutines)
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			if tok, err := RedeemToAdminToken(codeKey); err == nil {
+				results <- tok
+			}
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	var issued []*Token
+	for tok := range results {
+		issued = append(issued, tok)
+	}
+	require.Len(t, issued, 1, "exactly one concurrent redeem should issue a token")
+
+	var count int64
+	require.NoError(t, DB.Model(&Token{}).Where("user_id = ?", admin.Id).Count(&count).Error)
+	assert.Equal(t, int64(1), count)
+}

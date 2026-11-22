@@ -65,7 +65,7 @@ func TestWeChatOfficialAccountMatrix(t *testing.T) {
 			model.DB, model.LOG_DB = db, auditDB
 			common.OptionMap, common.RedisEnabled = make(map[string]string), false
 			common.SetDatabaseTypes(database.kind, common.DatabaseTypeSQLite)
-			tables := []any{&model.Redemption{}, &model.RedemptionGroup{}, &model.WeChatRedemptionDelivery{}, &model.Option{}, &model.SystemTask{}, &model.User{}}
+			tables := []any{&model.Redemption{}, &model.RedemptionGroup{}, &model.WeChatRedemptionDelivery{}, &model.WeChatRedemptionClaim{}, &model.Option{}, &model.SystemTask{}, &model.User{}}
 			t.Cleanup(func() {
 				assert.NoError(t, db.Migrator().DropTable(tables...))
 				assert.NoError(t, sqlDB.Close())
@@ -81,7 +81,7 @@ func TestWeChatOfficialAccountMatrix(t *testing.T) {
 			var version string
 			require.NoError(t, db.Raw(versionQuery).Scan(&version).Error)
 			t.Logf("database version: %s", version)
-			require.NoError(t, db.AutoMigrate(&model.Redemption{}, &model.RedemptionGroup{}))
+			require.NoError(t, db.AutoMigrate(&model.Redemption{}, &model.RedemptionGroup{}, &model.WeChatRedemptionDelivery{}))
 			group, err := model.CreateRedemptionGroup("Official Account")
 			require.NoError(t, err)
 			now := time.Now().Unix()
@@ -93,6 +93,7 @@ func TestWeChatOfficialAccountMatrix(t *testing.T) {
 				{Key: key(4), GroupId: group.Id, Status: common.RedemptionCodeStatusDisabled},
 				{Key: key(5), GroupId: group.Id, Status: common.RedemptionCodeStatusDisabled},
 				{Key: key(6), GroupId: group.Id, Status: common.RedemptionCodeStatusDisabled},
+				{Key: key(7), GroupId: group.Id, Status: common.RedemptionCodeStatusDisabled},
 			}
 			require.NoError(t, db.Create(&codes).Error)
 			for range 2 {
@@ -103,6 +104,8 @@ func TestWeChatOfficialAccountMatrix(t *testing.T) {
 			require.NoError(t, db.First(&originalGroup, group.Id).Error)
 			assert.Equal(t, group, originalGroup)
 			require.True(t, db.Migrator().HasIndex(&model.WeChatRedemptionDelivery{}, "RedemptionID"))
+			require.True(t, db.Migrator().HasIndex(&model.WeChatRedemptionClaim{}, "EventID"))
+			require.True(t, db.Migrator().HasIndex(&model.WeChatRedemptionClaim{}, "OpenID"))
 			admin := model.User{Username: "wechat-test", Role: common.RoleAdminUser, Status: common.UserStatusEnabled}
 			require.NoError(t, db.Create(&admin).Error)
 
@@ -110,10 +113,13 @@ func TestWeChatOfficialAccountMatrix(t *testing.T) {
 			engine.GET("/wechat", HandleWeChatOfficialAccount)
 			engine.POST("/wechat", HandleWeChatOfficialAccount)
 			engine.GET("/settings", GetWeChatOfficialAccountSettings)
-			engine.PUT("/settings", func(c *gin.Context) {
+			setAdmin := func(c *gin.Context) {
 				c.Set("id", admin.Id)
 				c.Set("role", admin.Role)
-			}, UpdateWeChatOfficialAccountSettings)
+			}
+			engine.PUT("/settings", setAdmin, UpdateWeChatOfficialAccountSettings)
+			engine.GET("/claims", GetWeChatRedemptionClaims)
+			engine.DELETE("/claims/:id", setAdmin, DeleteWeChatRedemptionClaim)
 			request := func(method, target, body string) *httptest.ResponseRecorder {
 				response := httptest.NewRecorder()
 				engine.ServeHTTP(response, httptest.NewRequest(method, target, strings.NewReader(body)))
@@ -217,15 +223,96 @@ func TestWeChatOfficialAccountMatrix(t *testing.T) {
 			assert.Equal(t, contents[0], contents[1])
 			assert.ElementsMatch(t, []string{key(5), key(6)}, []string{contents[0], contents[2]})
 
-			require.Contains(t, configure(wechatSafe, "").Body.String(), `"success":true`)
-			emptyURL, emptyBody := encryptedRequest(t, "subscriber-d", appID)
-			assert.Equal(t, http.StatusOK, request(http.MethodPost, emptyURL, emptyBody).Code)
+			require.Contains(t, configure(wechatSafe, `,"message_template":"missing placeholder"`).Body.String(), `"success":false`)
+			require.Contains(t, configure(wechatSafe, fmt.Sprintf(`,"message_template":%q`, strings.Repeat("a", 493)+"{{code}}")).Body.String(), `"success":false`)
+			customSave := configure(wechatSafe, `,"message_template":"  Welcome!\r\nCode: {{code}}\r\nEnjoy!  "`)
+			require.Contains(t, customSave.Body.String(), `"success":true`)
+			assert.Contains(t, customSave.Body.String(), `"message_template":"Welcome!\nCode: {{code}}\nEnjoy!"`)
+			assert.Contains(t, request(http.MethodGet, "/settings", "").Body.String(), `"message_template":"Welcome!\nCode: {{code}}\nEnjoy!"`)
+
+			decodeEncryptedText := func(reply *httptest.ResponseRecorder) string {
+				t.Helper()
+				require.Equal(t, http.StatusOK, reply.Code, reply.Body.String())
+				var envelope struct {
+					Encrypted string `xml:"Encrypt"`
+					Signature string `xml:"MsgSignature"`
+					Timestamp string `xml:"TimeStamp"`
+					Nonce     string `xml:"Nonce"`
+				}
+				require.NoError(t, xml.Unmarshal(reply.Body.Bytes(), &envelope))
+				assert.True(t, validWeChatSignature(envelope.Signature, token, envelope.Timestamp, envelope.Nonce, envelope.Encrypted))
+				decoded, err := decryptWeChatMessage(aesKey, envelope.Encrypted, appID)
+				require.NoError(t, err)
+				var text struct{ Content string }
+				require.NoError(t, xml.Unmarshal(decoded, &text))
+				return text.Content
+			}
+
+			customURL, customBody := encryptedRequest(t, "subscriber-d", appID)
+			customReply := request(http.MethodPost, customURL, customBody)
+			assert.Equal(t, "Welcome!\nCode: "+key(7)+"\nEnjoy!", decodeEncryptedText(customReply))
+
+			emptyURL, emptyBody := encryptedRequest(t, "subscriber-e", appID)
+			emptyReply := request(http.MethodPost, emptyURL, emptyBody)
+			assert.Equal(t, "感谢关注！兑换码暂时发完了。", decodeEncryptedText(emptyReply))
+
 			var deliveries int64
 			require.NoError(t, db.Model(&model.WeChatRedemptionDelivery{}).Count(&deliveries).Error)
-			assert.EqualValues(t, 3, deliveries)
+			assert.EqualValues(t, 4, deliveries)
 			var statuses []int
 			require.NoError(t, db.Model(&model.Redemption{}).Order("id").Pluck("status", &statuses).Error)
-			assert.Equal(t, []int{2, 2, 1, 2, 1, 1}, statuses)
+			assert.Equal(t, []int{2, 2, 1, 2, 1, 1, 1}, statuses)
+
+			type claimPage struct {
+				Success bool `json:"success"`
+				Data    struct {
+					Total int                                 `json:"total"`
+					Items []model.WeChatRedemptionClaimDetail `json:"items"`
+				} `json:"data"`
+			}
+			parseClaims := func(target string) claimPage {
+				t.Helper()
+				resp := request(http.MethodGet, target, "")
+				require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+				var parsed claimPage
+				require.NoError(t, common.Unmarshal(resp.Body.Bytes(), &parsed))
+				require.True(t, parsed.Success, resp.Body.String())
+				return parsed
+			}
+
+			allClaims := parseClaims("/claims?p=1&page_size=10")
+			require.Equal(t, 4, allClaims.Data.Total)
+			require.Len(t, allClaims.Data.Items, 4)
+
+			filteredClaims := parseClaims("/claims?keyword=SUBSCRIBER-D&group_id=" + strconv.Itoa(group.Id))
+			require.Equal(t, 1, filteredClaims.Data.Total)
+			require.Len(t, filteredClaims.Data.Items, 1)
+			claimD := filteredClaims.Data.Items[0]
+			assert.Equal(t, "subscriber-d", claimD.OpenID)
+			assert.Equal(t, originalID, claimD.OriginalID)
+			assert.Equal(t, group.Id, claimD.GroupID)
+			assert.Equal(t, group.Name, claimD.GroupName)
+			assert.Equal(t, key(7), claimD.RedemptionKey)
+			assert.Equal(t, common.RedemptionCodeStatusEnabled, claimD.RedemptionStatus)
+
+			assert.Equal(t, 0, parseClaims("/claims?keyword=100%25_none").Data.Total)
+			assert.Equal(t, 0, parseClaims("/claims?group_id=999999").Data.Total)
+
+			assert.Contains(t, request(http.MethodDelete, "/claims/0", "").Body.String(), `"success":false`)
+			assert.Contains(t, request(http.MethodDelete, "/claims/999999", "").Body.String(), `"success":false`)
+			delResp := request(http.MethodDelete, "/claims/"+strconv.Itoa(claimD.Id), "")
+			require.Contains(t, delResp.Body.String(), `"success":true`)
+
+			afterDelete := parseClaims("/claims?p=1&page_size=10")
+			assert.Equal(t, 3, afterDelete.Data.Total)
+			for _, item := range afterDelete.Data.Items {
+				assert.NotEqual(t, claimD.Id, item.Id)
+			}
+			// Deleting a claim record must not affect delivery deduplication.
+			require.NoError(t, db.Model(&model.WeChatRedemptionDelivery{}).Count(&deliveries).Error)
+			assert.EqualValues(t, 4, deliveries)
+			var deleteAudit model.AuditLog
+			require.NoError(t, auditDB.Where("action = ?", "wechat_official_account.claim_delete").First(&deleteAudit).Error)
 		})
 	}
 }

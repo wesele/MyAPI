@@ -20,6 +20,7 @@ import { api } from '@/lib/api'
 
 import type {
   ApiKey,
+  ApiKeyGroup,
   ApiResponse,
   GetApiKeysParams,
   GetApiKeysResponse,
@@ -36,8 +37,10 @@ import type {
 export async function getApiKeys(
   params: GetApiKeysParams = {}
 ): Promise<GetApiKeysResponse> {
-  const { p = 1, size = 10 } = params
-  const res = await api.get(`/api/token/?p=${p}&size=${size}`)
+  const { p = 1, size = 10, group_id } = params
+  const res = await api.get('/api/token/', {
+    params: { p, size, ...(group_id !== undefined ? { group_id } : {}) },
+  })
   return res.data
 }
 
@@ -45,10 +48,11 @@ export async function getApiKeys(
 export async function searchApiKeys(
   params: SearchApiKeysParams
 ): Promise<GetApiKeysResponse> {
-  const { keyword = '', token = '', p, size } = params
+  const { keyword = '', token = '', p, size, group_id } = params
   const queryParams = new URLSearchParams()
   if (keyword) queryParams.set('keyword', keyword)
   if (token) queryParams.set('token', token)
+  if (group_id !== undefined) queryParams.set('group_id', String(group_id))
   if (p != null) queryParams.set('p', String(p))
   if (size != null) queryParams.set('size', String(size))
   const res = await api.get(`/api/token/search?${queryParams.toString()}`)
@@ -123,5 +127,57 @@ export async function fetchTokenKeysBatch(ids: number[]): Promise<{
   data?: { keys: Record<number, string> }
 }> {
   const res = await api.post('/api/token/batch/keys', { ids })
+  return res.data
+}
+
+// ============================================================================
+// API Key Groups
+// ============================================================================
+
+export const apiKeyGroupsQueryKey = ['api-key-groups'] as const
+
+export async function getApiKeyGroups(): Promise<ApiResponse<ApiKeyGroup[]>> {
+  const res = await api.get('/api/token/groups')
+  return res.data
+}
+
+export async function saveApiKeyGroup(
+  name: string,
+  id?: number,
+  concurrency_limit?: number
+): Promise<ApiResponse<ApiKeyGroup>> {
+  const payload =
+    concurrency_limit === undefined ? { name } : { name, concurrency_limit }
+  const res =
+    id === undefined
+      ? await api.post('/api/token/groups', payload)
+      : await api.put(`/api/token/groups/${id}`, payload)
+  return res.data
+}
+
+export async function deleteApiKeyGroup(id: number): Promise<ApiResponse> {
+  const res = await api.delete(`/api/token/groups/${id}`)
+  return res.data
+}
+
+export async function downloadApiKeyGroupKeys(id: number): Promise<Blob> {
+  const response = await api.get<Blob>(`/api/token/groups/${id}/download`, {
+    responseType: 'blob',
+  })
+  return response.data
+}
+
+export async function disableApiKeyGroupKeys(
+  groupId: number
+): Promise<ApiResponse<number>> {
+  const res = await api.post(`/api/token/groups/${groupId}/disable`)
+  return res.data
+}
+
+export async function moveApiKeysToGroup(
+  ids: number[],
+  group_id: number
+): Promise<ApiResponse> {
+  const res = await api.put('/api/token/groups/members', { ids, group_id })
   return res.data
 }

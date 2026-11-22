@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -39,11 +40,12 @@ var (
 )
 
 type wechatOfficialAccountSettings struct {
-	Enabled    bool   `json:"enabled"`
-	Mode       string `json:"mode"`
-	AppID      string `json:"app_id"`
-	OriginalID string `json:"original_id"`
-	GroupID    int    `json:"group_id"`
+	Enabled         bool   `json:"enabled"`
+	Mode            string `json:"mode"`
+	AppID           string `json:"app_id"`
+	OriginalID      string `json:"original_id"`
+	GroupID         int    `json:"group_id"`
+	MessageTemplate string `json:"message_template"`
 }
 
 type wechatOfficialAccountConfig struct {
@@ -97,6 +99,7 @@ func UpdateWeChatOfficialAccountSettings(c *gin.Context) {
 	config.wechatOfficialAccountSettings = change.wechatOfficialAccountSettings
 	config.AppID = strings.TrimSpace(config.AppID)
 	config.OriginalID = strings.TrimSpace(config.OriginalID)
+	config.MessageTemplate = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(config.MessageTemplate, "\r\n", "\n"), "\r", "\n"))
 	if change.Token != nil {
 		config.Token = strings.TrimSpace(*change.Token)
 	}
@@ -119,8 +122,16 @@ func UpdateWeChatOfficialAccountSettings(c *gin.Context) {
 		common.ApiErrorT(c, "Enter the WeChat original ID and the AppID required for encrypted mode")
 		return
 	}
-	if len(config.AppID) > 64 || len(config.OriginalID) > 64 || config.GroupID < 0 {
+	if len(config.AppID) > 64 || len(config.OriginalID) > 64 || config.GroupID < 0 || strings.ContainsRune(config.MessageTemplate, '\x00') {
 		common.ApiErrorT(c, "Invalid request")
+		return
+	}
+	if utf8.RuneCountInString(config.MessageTemplate) > 500 || len(config.MessageTemplate) > 1800 {
+		common.ApiErrorT(c, "Message template cannot exceed 500 characters")
+		return
+	}
+	if config.MessageTemplate != "" && !strings.Contains(config.MessageTemplate, "{{code}}") {
+		common.ApiErrorT(c, "Message template must include {{placeholder}}", map[string]any{"placeholder": "{{code}}"})
 		return
 	}
 	if config.Enabled {
@@ -141,7 +152,7 @@ func UpdateWeChatOfficialAccountSettings(c *gin.Context) {
 		return
 	}
 	recordManageAudit(c, "wechat_official_account.update", map[string]any{
-		"enabled": config.Enabled, "mode": config.Mode, "group_id": config.GroupID,
+		"enabled": config.Enabled, "mode": config.Mode, "group_id": config.GroupID, "custom_message": config.MessageTemplate != "",
 	})
 	GetWeChatOfficialAccountSettings(c)
 }
@@ -227,21 +238,25 @@ func HandleWeChatOfficialAccount(c *gin.Context) {
 		return
 	}
 	event := sha256.Sum256([]byte(message.To + "\x00" + message.From + "\x00" + strconv.FormatInt(message.CreatedAt, 10)))
-	code, err := model.IssueWeChatRedemption(c.Request.Context(), config.GroupID, hex.EncodeToString(event[:]))
+	code, err := model.IssueWeChatRedemption(c.Request.Context(), config.GroupID, hex.EncodeToString(event[:]), message.From, message.To)
 	if err != nil {
 		// Never log the callback signature, subscriber identifiers or redemption key.
 		c.Status(http.StatusServiceUnavailable)
 		return
 	}
-	language := i18n.StatedLang(c)
-	if language == "" && common.DefaultLanguage == "" {
-		language = i18n.LangZhCN
-	}
 	var content string
-	if code != "" {
-		content = i18n.Translate(language, i18n.MsgWeChatRedemptionIssued, map[string]any{"Code": code})
+	if code != "" && config.MessageTemplate != "" {
+		content = strings.ReplaceAll(config.MessageTemplate, "{{code}}", code)
 	} else {
-		content = i18n.Translate(language, i18n.MsgWeChatRedemptionUnavailable)
+		language := i18n.StatedLang(c)
+		if language == "" && common.DefaultLanguage == "" {
+			language = i18n.LangZhCN
+		}
+		if code != "" {
+			content = i18n.Translate(language, i18n.MsgWeChatRedemptionIssued, map[string]any{"Code": code})
+		} else {
+			content = i18n.Translate(language, i18n.MsgWeChatRedemptionUnavailable)
+		}
 	}
 	reply, err := xml.Marshal(struct {
 		XMLName   xml.Name `xml:"xml"`
@@ -281,4 +296,44 @@ func wechatAESKey(encoded string) []byte {
 		return nil
 	}
 	return key
+}
+
+func GetWeChatRedemptionClaims(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	keyword := strings.TrimSpace(c.Query("keyword"))
+	var groupID *int
+	if raw, ok := c.GetQuery("group_id"); ok && raw != "" {
+		id, err := strconv.Atoi(raw)
+		if err != nil || id < 0 {
+			common.ApiErrorT(c, "Invalid request")
+			return
+		}
+		groupID = &id
+	}
+	claims, total, err := model.ListWeChatRedemptionClaims(c.Request.Context(), keyword, groupID, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	if err != nil {
+		common.ApiErrorT(c, "Could not load WeChat redemption claims")
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(claims)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func DeleteWeChatRedemptionClaim(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorT(c, "Invalid request")
+		return
+	}
+	if err := model.DeleteWeChatRedemptionClaim(c.Request.Context(), id); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiErrorT(c, "Claim record not found")
+		} else {
+			common.ApiErrorT(c, "Could not delete WeChat redemption claim")
+		}
+		return
+	}
+	recordManageAudit(c, "wechat_official_account.claim_delete", map[string]any{"id": id})
+	common.ApiSuccess(c, nil)
 }

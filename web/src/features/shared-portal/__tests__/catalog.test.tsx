@@ -25,11 +25,13 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import i18next from 'i18next'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { ReferencePricesSection } from '@/features/system-settings/billing/reference-prices-section'
+import zhCN from '@/i18n/locales/zh.json'
 import { api } from '@/lib/api'
 import { STATUS_QUERY_KEY } from '@/lib/status-query'
 
@@ -66,6 +68,7 @@ test('shows a comparable price card and filters the catalog by model name', asyn
             {
               model_name: 'Example model',
               description: 'An efficient text model',
+              vendor_id: 1,
               model_ratio: 0.1675,
               completion_ratio: 2,
               quota_type: 0,
@@ -73,7 +76,34 @@ test('shows a comparable price card and filters the catalog by model name', asyn
             },
           ],
           group_ratio: { default: 1 },
-          vendors: [],
+          vendors: [{ id: 1, name: 'Hidden Vendor' }],
+        })
+      }
+      if (path.startsWith('/api/perf-metrics/summary')) {
+        return Response.json({
+          success: true,
+          data: {
+            window_start: 0,
+            window_end: 86400,
+            models: [
+              {
+                model_name: 'Example model',
+                avg_latency_ms: 2020,
+                avg_tps: 90.3,
+                success_rate: 100,
+                recent_success_series: [
+                  { ts: 3600, success_rate: 100 },
+                  { ts: 7200, success_rate: 100 },
+                ],
+              },
+            ],
+            recent_success_series: {
+              'Example model': [
+                { ts: 3600, success_rate: 100 },
+                { ts: 7200, success_rate: 100 },
+              ],
+            },
+          },
         })
       }
       return Response.json({
@@ -93,16 +123,29 @@ test('shows a comparable price card and filters the catalog by model name', asyn
   )
 
   expect(await screen.findByText('Example model')).toBeVisible()
+  expect(screen.queryByText('Hidden Vendor')).not.toBeInTheDocument()
   expect(screen.getByText('An efficient text model')).toBeVisible()
   expect(screen.getByText('$0.34 / ¥2.45')).toBeVisible()
   expect(screen.getByText('$0.67 / ¥4.89')).toBeVisible()
-  expect(await screen.findAllByText('66.5% off')).toHaveLength(2)
-  expect(screen.getByText('Official reference price · ¥7.3')).toBeVisible()
+  const discounts = await screen.findAllByText('66.5% off')
+  expect(discounts).toHaveLength(2)
+  const firstRef = screen.getByText('Official reference price · ¥7.3')
+  expect(firstRef).toBeVisible()
+  expect(firstRef.parentElement).toContainElement(discounts[0])
   expect(screen.getByText('Official reference price · $2')).toBeVisible()
-  expect(screen.getByRole('link', { name: 'Source' })).toHaveAttribute(
-    'href',
-    'https://example.com/pricing'
+  expect(screen.queryByRole('link', { name: 'Source' })).not.toBeInTheDocument()
+  expect(screen.queryByText('2026-11-21')).not.toBeInTheDocument()
+  const perf = await screen.findByLabelText(
+    'Performance metrics for the last 24 hours'
   )
+  const card = screen.getByText('Example model').closest('[data-slot="card"]')
+  expect(card).not.toBeNull()
+  if (!card) throw new Error('Catalog card not found')
+  const lists = card.querySelectorAll('dl')
+  expect(lists).toHaveLength(2)
+  expect(within(perf).getByText('100.00%')).toBeVisible()
+  expect(within(perf).getByText('2.02s')).toBeVisible()
+  expect(within(perf).getByText('90.3t/s')).toBeVisible()
   await userEvent
     .setup()
     .type(
@@ -165,4 +208,71 @@ test('maintains legacy USD and new CNY prices in the same reference entry', asyn
   expect(
     JSON.parse((request?.[1] as { value: string } | undefined)?.value ?? '{}')
   ).toEqual(updated)
+})
+
+test('shows fold discount in Chinese locale on the catalog card', async () => {
+  i18next.addResourceBundle('zhCN', 'translation', zhCN.translation, true, true)
+  await i18next.changeLanguage('zhCN')
+  try {
+    const root = createRootRoute({ component: Outlet })
+    const catalog = createRoute({
+      getParentRoute: () => root,
+      path: '/catalog',
+      component: SharedModelsPage,
+    })
+    const router = createRouter({
+      routeTree: root.addChildren([catalog]),
+      history: createMemoryHistory({ initialEntries: ['/catalog'] }),
+    })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    client.setQueryData(STATUS_QUERY_KEY, { usd_exchange_rate: 7.3 })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (path: string) => {
+        if (path === '/api/pricing') {
+          return Response.json({
+            success: true,
+            data: [
+              {
+                model_name: 'Fold model',
+                model_ratio: 0.05,
+                completion_ratio: 2,
+                quota_type: 0,
+                enable_groups: ['default'],
+              },
+            ],
+            group_ratio: { default: 1 },
+            vendors: [],
+          })
+        }
+        if (path.startsWith('/api/perf-metrics/summary')) {
+          return Response.json({
+            success: true,
+            data: { window_start: 0, window_end: 86400, models: [] },
+          })
+        }
+        return Response.json({
+          'Fold model': {
+            input_usd: 1,
+            output_usd: 2,
+            source: 'https://example.com/pricing',
+            checked: '2026-11-21',
+          },
+        })
+      })
+    )
+    render(
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    )
+
+    expect(await screen.findByText('Fold model')).toBeVisible()
+    expect(await screen.findAllByText('1折')).toHaveLength(2)
+    expect(screen.getByText('官方参考价 · $1')).toBeVisible()
+  } finally {
+    await i18next.changeLanguage('en')
+  }
 })

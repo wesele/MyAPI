@@ -32,6 +32,7 @@ import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
 import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
+import { Route as AuthenticatedWechatClaimsRouteImport } from './routes/_authenticated/wechat-claims'
 import { Route as AuthenticatedWechatOfficialAccountRouteImport } from './routes/_authenticated/wechat-official-account'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
 import { Route as KeyUsageLookupIdRouteImport } from './routes/key-usage.$lookupId'
@@ -193,6 +194,12 @@ const AuthenticatedSystemSettingsRouteRoute =
   AuthenticatedSystemSettingsRouteRouteImport.update({
     id: '/system-settings',
     path: '/system-settings',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedWechatClaimsRoute =
+  AuthenticatedWechatClaimsRouteImport.update({
+    id: '/wechat-claims',
+    path: '/wechat-claims',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedWechatOfficialAccountRoute =
@@ -495,6 +502,7 @@ export interface FileRoutesByFullPath {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
+  '/wechat-claims': typeof AuthenticatedWechatClaimsRoute
   '/wechat-official-account': typeof AuthenticatedWechatOfficialAccountRoute
   '/key-usage/$lookupId': typeof KeyUsageLookupIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
@@ -565,6 +573,7 @@ export interface FileRoutesByTo {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
+  '/wechat-claims': typeof AuthenticatedWechatClaimsRoute
   '/wechat-official-account': typeof AuthenticatedWechatOfficialAccountRoute
   '/key-usage/$lookupId': typeof KeyUsageLookupIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
@@ -639,6 +648,7 @@ export interface FileRoutesById {
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
   '/_authenticated/chat2link': typeof AuthenticatedChat2linkRoute
+  '/_authenticated/wechat-claims': typeof AuthenticatedWechatClaimsRoute
   '/_authenticated/wechat-official-account': typeof AuthenticatedWechatOfficialAccountRoute
   '/key-usage/$lookupId': typeof KeyUsageLookupIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
@@ -712,6 +722,7 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/chat2link'
+    | '/wechat-claims'
     | '/wechat-official-account'
     | '/key-usage/$lookupId'
     | '/oauth/$provider'
@@ -782,6 +793,7 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/chat2link'
+    | '/wechat-claims'
     | '/wechat-official-account'
     | '/key-usage/$lookupId'
     | '/oauth/$provider'
@@ -855,6 +867,7 @@ export interface FileRouteTypes {
     | '/(errors)/500'
     | '/(errors)/503'
     | '/_authenticated/chat2link'
+    | '/_authenticated/wechat-claims'
     | '/_authenticated/wechat-official-account'
     | '/key-usage/$lookupId'
     | '/oauth/$provider'
@@ -1090,6 +1103,13 @@ declare module '@tanstack/react-router' {
       path: '/system-settings'
       fullPath: '/system-settings'
       preLoaderRoute: typeof AuthenticatedSystemSettingsRouteRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/wechat-claims': {
+      id: '/_authenticated/wechat-claims'
+      path: '/wechat-claims'
+      fullPath: '/wechat-claims'
+      preLoaderRoute: typeof AuthenticatedWechatClaimsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/wechat-official-account': {
@@ -1523,6 +1543,7 @@ const AuthenticatedSystemSettingsRouteRouteWithChildren =
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
+  AuthenticatedWechatClaimsRoute: typeof AuthenticatedWechatClaimsRoute
   AuthenticatedWechatOfficialAccountRoute: typeof AuthenticatedWechatOfficialAccountRoute
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
@@ -1552,6 +1573,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,
   AuthenticatedChat2linkRoute: AuthenticatedChat2linkRoute,
+  AuthenticatedWechatClaimsRoute: AuthenticatedWechatClaimsRoute,
   AuthenticatedWechatOfficialAccountRoute:
     AuthenticatedWechatOfficialAccountRoute,
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,

@@ -226,6 +226,18 @@ func TokenOperationAudit() gin.HandlerFunc {
 			action, content = "token.key_view", "API token key access"
 		case "POST /api/token/batch/keys":
 			action, content = "token.key_view_batch", "API token batch key access"
+		case "POST /api/token/groups":
+			action, content = "token.group_create", "API token group creation"
+		case "PUT /api/token/groups/:group_id":
+			action, content = "token.group_rename", "API token group rename"
+		case "DELETE /api/token/groups/:group_id":
+			action, content = "token.group_delete", "API token group deletion"
+		case "POST /api/token/groups/:group_id/disable":
+			action, content = "token.group_disable", "API token group disable"
+		case "PUT /api/token/groups/members":
+			action, content = "token.group_move", "API token group move"
+		case "GET /api/token/groups/:group_id/download":
+			action, content = "token.group_export", "API token group export"
 		default:
 			c.Next()
 			return

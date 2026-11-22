@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import { queryOptions } from '@tanstack/react-query'
 import { z } from 'zod'
 
+import type { PerfSummaryAllData } from '@/features/performance-metrics/types'
+import type { ModelPerfBadgeData } from '@/features/pricing/components/model-perf-badge'
 import type { PricingData } from '@/features/pricing/types'
 import { api } from '@/lib/api'
 
@@ -124,3 +126,62 @@ export const publicReferencePrices = queryOptions({
   staleTime: 60_000,
   meta: { errorToast: false },
 })
+
+const MAX_RECENT_MODELS = 50
+
+export async function getPublicPerfMetricsSummary(
+  modelNames: string[],
+  signal: AbortSignal
+): Promise<Map<string, ModelPerfBadgeData>> {
+  const uniqueNames = [...new Set(modelNames.filter(Boolean))]
+  const map = new Map<string, ModelPerfBadgeData>()
+  if (uniqueNames.length === 0) return map
+
+  const chunks: string[][] = []
+  for (let i = 0; i < uniqueNames.length; i += MAX_RECENT_MODELS) {
+    chunks.push(uniqueNames.slice(i, i + MAX_RECENT_MODELS))
+  }
+
+  const payloads = await Promise.all(
+    chunks.map(async (batch) => {
+      const params = new URLSearchParams({ hours: '24' })
+      for (const name of batch) {
+        params.append('recent_model', name)
+      }
+      const response = await fetch(
+        `/api/perf-metrics/summary?${params.toString()}`,
+        {
+          credentials: 'omit',
+          signal,
+        }
+      )
+      if (!response.ok) return null
+      const json: PerfSummaryAllData = await response.json()
+      return json.success ? json : null
+    })
+  )
+
+  for (const payload of payloads) {
+    if (!payload?.data) continue
+    for (const model of payload.data.models ?? []) {
+      map.set(model.model_name, {
+        ...model,
+        window_start: payload.data.window_start,
+        window_end: payload.data.window_end,
+      })
+    }
+    for (const [name, series] of Object.entries(
+      payload.data.recent_success_series ?? {}
+    )) {
+      map.set(name, {
+        avg_latency_ms: Number.NaN,
+        avg_tps: Number.NaN,
+        success_rate: Number.NaN,
+        ...map.get(name),
+        recent_success_series: series,
+      })
+    }
+  }
+
+  return map
+}

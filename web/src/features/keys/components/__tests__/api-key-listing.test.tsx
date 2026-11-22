@@ -351,8 +351,17 @@ async function renderKeysPage(status = 1, overrides: Partial<ApiKey> = {}) {
 
 it('combines creation and last use while keeping expiry, models and IP restrictions separate', async () => {
   await renderKeysPage()
-  for (const name of ['Name', 'API Key', 'Group', 'Models', 'IP Restriction']) {
-    expect(screen.getByRole('columnheader', { name })).toBeInTheDocument()
+  for (const name of [
+    'Name',
+    'Key Group',
+    'API Key',
+    'Group',
+    'Models',
+    'IP Restriction',
+  ]) {
+    expect(
+      screen.getByRole('columnheader', { name: new RegExp(`^${name}$`) })
+    ).toBeInTheDocument()
   }
   expect(screen.getByRole('columnheader', { name: 'Time' })).toBeInTheDocument()
   expect(

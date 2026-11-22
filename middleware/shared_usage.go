@@ -42,6 +42,16 @@ func SharedPortalRequest(c *gin.Context) {
 	c.Next()
 }
 
+func isSharedUsageCookieSecure(c *gin.Context) bool {
+	if common.SessionCookieSecure || c.Request.TLS != nil {
+		return true
+	}
+	if strings.EqualFold(c.Request.URL.Scheme, "https") {
+		return true
+	}
+	return strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+}
+
 // StartSharedUsage exchanges a relay key for a path-scoped read-only cookie.
 func StartSharedUsage(c *gin.Context) {
 	scheme, keyHeader, ok := strings.Cut(c.GetHeader("Authorization"), " ")
@@ -73,7 +83,7 @@ func StartSharedUsage(c *gin.Context) {
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name: usageCookie, Value: base64.RawURLEncoding.EncodeToString(value),
 		Path:   "/api/shared/usage/" + id + "/",
-		MaxAge: int(usageLifetime.Seconds()), Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode,
+		MaxAge: int(usageLifetime.Seconds()), Secure: isSharedUsageCookieSecure(c), HttpOnly: true, SameSite: http.SameSiteStrictMode,
 	})
 	c.JSON(http.StatusOK, gin.H{"id": id})
 }

@@ -34,6 +34,7 @@ export const apiKeySchema = z.object({
   created_time: z.number(),
   accessed_time: z.number(),
   group: z.string().nullish().default(''),
+  group_id: z.number().int().nonnegative().optional(),
   auto_groups: z.array(z.string()).nullish().default(null),
   cross_group_retry: z
     .preprocess((v) => {
@@ -51,6 +52,12 @@ export const apiKeySchema = z.object({
 
 export type ApiKey = z.infer<typeof apiKeySchema>
 
+export type ApiKeyGroup = {
+  id: number
+  name: string
+  concurrency_limit?: number
+}
+
 // ============================================================================
 // API Request/Response Types
 // ============================================================================
@@ -64,6 +71,7 @@ export interface ApiResponse<T = unknown> {
 export interface GetApiKeysParams {
   p?: number
   size?: number
+  group_id?: number
 }
 
 export interface GetApiKeysResponse {
@@ -82,6 +90,7 @@ export interface SearchApiKeysParams {
   token?: string
   p?: number
   size?: number
+  group_id?: number
 }
 
 export interface ApiKeyFormData {
@@ -94,6 +103,7 @@ export interface ApiKeyFormData {
   allow_ips: string
   allow_user_quota_query: boolean
   group: string
+  group_id?: number
   auto_groups: string[]
   cross_group_retry: boolean
 }

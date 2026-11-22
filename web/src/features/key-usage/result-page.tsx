@@ -1,4 +1,3 @@
-import { useQuery } from '@tanstack/react-query'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -17,10 +16,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { SharedPortalLayout } from '@/features/shared-portal/layout'
@@ -53,29 +54,45 @@ export function KeyUsageResultPage(props: { lookupId: string }) {
         : t('Could not query this API Key. Try again.')
   }
 
+  const isDirectTrial = Boolean(
+    usage.data?.ok && usage.data.data.trial_refill?.eligible
+  )
+
   return (
-    <SharedPortalLayout>
+    <SharedPortalLayout wide>
       <div className='flex flex-wrap items-center justify-between gap-3'>
-        <h1 className='text-3xl font-bold tracking-tight'>
-          {t('API Key usage')}
-        </h1>
-        {expired ? (
-          <Link to='/' className={buttonVariants()}>
-            {t('New query')}
-          </Link>
-        ) : (
-          <Button
-            variant='outline'
-            disabled={pending}
-            onClick={() => {
-              void usage.refetch()
-              void logs.refetch()
-            }}
-          >
-            {pending && <Spinner aria-hidden='true' />}
-            {t('Refresh')}
-          </Button>
-        )}
+        <div className='flex flex-wrap items-center gap-2.5'>
+          <h1 className='text-3xl font-bold tracking-tight'>
+            {t('API Key usage')}
+          </h1>
+          {isDirectTrial && (
+            <Badge variant='secondary'>{t('Direct · Free Trial')}</Badge>
+          )}
+        </div>
+        <div className='flex flex-wrap items-center gap-2'>
+          {!expired && (
+            <Link to='/' className={buttonVariants({ variant: 'outline' })}>
+              {t('New query')}
+            </Link>
+          )}
+          {expired ? (
+            <Link to='/' className={buttonVariants()}>
+              {t('New query')}
+            </Link>
+          ) : (
+            <Button
+              variant='outline'
+              disabled={pending}
+              onClick={() => {
+                void usage.refetch()
+                void logs.refetch()
+              }}
+            >
+              {pending && <Spinner aria-hidden='true' />}
+              {t('Refresh')}
+            </Button>
+          )}
+        </div>
       </div>
       {message && (
         <Alert variant='destructive' className='mt-4'>
@@ -84,7 +101,14 @@ export function KeyUsageResultPage(props: { lookupId: string }) {
       )}
       <div aria-live='polite' aria-busy={pending}>
         {usage.data?.ok && (
-          <KeyUsageResults usage={usage.data.data} logs={logs.data ?? null} />
+          <KeyUsageResults
+            lookupId={props.lookupId}
+            usage={usage.data.data}
+            logs={logs.data ?? null}
+            onUsageUpdated={() => {
+              void usage.refetch()
+            }}
+          />
         )}
       </div>
     </SharedPortalLayout>

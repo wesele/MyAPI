@@ -20,6 +20,7 @@ import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { LanguageSwitcher } from '@/components/language-switcher'
 import { SystemBrand } from '@/components/layout/components/system-brand'
 import { buttonVariants } from '@/components/ui/button'
 
@@ -32,24 +33,30 @@ export function SharedPortalLayout(props: {
     <div className='bg-muted/40 min-h-svh'>
       <header className='bg-background flex min-h-14 items-center justify-between gap-3 border-b px-4 sm:px-8'>
         <SystemBrand variant='inline' homeLink='/' />
-        <nav
-          aria-label={t('Navigation')}
-          className='flex shrink-0 items-center gap-1'
-        >
-          <Link
-            to='/'
-            activeOptions={{ exact: true }}
-            className={buttonVariants({ variant: 'ghost' })}
+        <div className='flex shrink-0 items-center gap-1 sm:gap-2'>
+          <nav
+            aria-label={t('Navigation')}
+            className='flex shrink-0 items-center gap-1'
           >
-            {t('Home')}
-          </Link>
-          <Link to='/catalog' className={buttonVariants({ variant: 'ghost' })}>
-            {t('Models')}
-          </Link>
-        </nav>
+            <Link
+              to='/'
+              activeOptions={{ exact: true }}
+              className={buttonVariants({ variant: 'ghost' })}
+            >
+              {t('Home')}
+            </Link>
+            <Link
+              to='/catalog'
+              className={buttonVariants({ variant: 'ghost' })}
+            >
+              {t('Models')}
+            </Link>
+          </nav>
+          <LanguageSwitcher />
+        </div>
       </header>
       <main
-        className={`mx-auto w-full px-4 pt-9 pb-14 sm:px-6 sm:pt-12 ${props.wide ? 'max-w-6xl' : 'max-w-2xl'}`}
+        className={`mx-auto w-full px-4 pt-4 pb-10 sm:px-6 sm:pt-5 sm:pb-12 ${props.wide ? 'max-w-6xl' : 'max-w-2xl'}`}
       >
         {props.children}
       </main>

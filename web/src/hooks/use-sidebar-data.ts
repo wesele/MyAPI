@@ -161,6 +161,13 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             requiredRole: ROLE.ADMIN,
           },
           {
+            title: t('WeChat Claim Records'),
+            url: '/wechat-claims',
+            configUrls: ['/redemption-codes'],
+            icon: ClipboardList,
+            requiredRole: ROLE.ADMIN,
+          },
+          {
             title: t('Subscriptions'),
             url: '/subscriptions',
             icon: CreditCard,
