@@ -99,3 +99,128 @@ test('shows the OpenCode goal when responses exceed it and keeps the survey link
     client.clear()
   }
 })
+
+test('renders the top six lowest input-price models in a multi-column grid', async () => {
+  const root = createRootRoute({ component: Outlet })
+  const home = createRoute({
+    getParentRoute: () => root,
+    path: '/',
+    component: PortalHighlights,
+  })
+  const catalogRoute = createRoute({
+    getParentRoute: () => root,
+    path: '/catalog',
+  })
+  const router = createRouter({
+    routeTree: root.addChildren([home, catalogRoute]),
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+  })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  client.setQueryData(publicCatalog.queryKey, {
+    success: true,
+    data: [
+      {
+        id: 1,
+        model_name: 'model-expensive',
+        model_ratio: 5,
+        completion_ratio: 2,
+        quota_type: 0,
+        enable_groups: ['default'],
+      },
+      {
+        id: 2,
+        model_name: 'model-tier-6',
+        model_ratio: 0.6,
+        completion_ratio: 2,
+        quota_type: 0,
+        enable_groups: ['default'],
+      },
+      {
+        id: 3,
+        model_name: 'model-tier-3',
+        model_ratio: 0.3,
+        completion_ratio: 2,
+        quota_type: 0,
+        enable_groups: ['default'],
+      },
+      {
+        id: 4,
+        model_name: 'model-tier-1',
+        model_ratio: 0.05,
+        completion_ratio: 2,
+        quota_type: 0,
+        enable_groups: ['default'],
+      },
+      {
+        id: 5,
+        model_name: 'model-tier-5',
+        model_ratio: 0.5,
+        completion_ratio: 2,
+        quota_type: 0,
+        enable_groups: ['default'],
+      },
+      {
+        id: 6,
+        model_name: 'model-tier-2',
+        model_ratio: 0.1,
+        completion_ratio: 2,
+        quota_type: 0,
+        enable_groups: ['default'],
+      },
+      {
+        id: 7,
+        model_name: 'model-tier-4',
+        model_ratio: 0.4,
+        completion_ratio: 2,
+        quota_type: 0,
+        enable_groups: ['default'],
+      },
+    ],
+    vendors: [],
+    group_ratio: { default: 1 },
+    usable_group: {},
+    supported_endpoint: {},
+    auto_groups: [],
+  })
+  client.setQueryData(publicReferencePrices.queryKey, {
+    'model-tier-1': {
+      input_usd: 1,
+      source: 'https://example.com/pricing',
+      checked: '2026-11-21',
+    },
+  })
+  client.setQueryData(publicSurveyResults.queryKey, [])
+
+  const view = render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
+  )
+  try {
+    const region = await screen.findByRole('region', {
+      name: 'Models and pricing',
+    })
+    const list = within(region).getByRole('list')
+    expect(list).toHaveClass('sm:grid-cols-2')
+
+    const items = within(list).getAllByRole('listitem')
+    expect(items).toHaveLength(6)
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringContaining('model-tier-1'),
+      expect.stringContaining('model-tier-2'),
+      expect.stringContaining('model-tier-3'),
+      expect.stringContaining('model-tier-4'),
+      expect.stringContaining('model-tier-5'),
+      expect.stringContaining('model-tier-6'),
+    ])
+    expect(
+      within(region).queryByText('model-expensive')
+    ).not.toBeInTheDocument()
+    expect(within(items[0]).getByText('90% off')).toBeVisible()
+  } finally {
+    view.unmount()
+    client.clear()
+  }
+})

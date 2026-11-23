@@ -120,6 +120,77 @@ export function formatDiscountLabel(options: {
   })
 }
 
+export const HIGHLIGHT_MODEL_LIMIT = 6
+
+export interface HighlightModelEntry {
+  model: PricingModel
+  group: string
+  ratio: number
+  price?: ReturnType<typeof comparablePrices>[number]
+}
+
+export function selectHighlightModels(
+  models: PricingModel[] | undefined,
+  ratios: Record<string, number>,
+  limit = HIGHLIGHT_MODEL_LIMIT
+): HighlightModelEntry[] {
+  if (!models?.length || limit <= 0) return []
+
+  const entries: Array<
+    HighlightModelEntry & { tier: number; sortPrice: number }
+  > = []
+
+  for (const model of models) {
+    const group = getPublicModelGroup(model, ratios)
+    if (!group) continue
+    const ratio = ratios[group]
+    const prices = comparablePrices(model, ratio)
+    const inputPrice = prices.find(
+      (item) => item.kind === 'input' && Number.isFinite(item.current)
+    )
+    if (inputPrice) {
+      entries.push({
+        model,
+        group,
+        ratio,
+        price: inputPrice,
+        tier: 0,
+        sortPrice: inputPrice.current,
+      })
+      continue
+    }
+    const requestPrice = prices.find(
+      (item) => item.kind === 'request' && Number.isFinite(item.current)
+    )
+    if (requestPrice) {
+      entries.push({
+        model,
+        group,
+        ratio,
+        price: requestPrice,
+        tier: 1,
+        sortPrice: requestPrice.current,
+      })
+      continue
+    }
+    entries.push({
+      model,
+      group,
+      ratio,
+      tier: 2,
+      sortPrice: Number.POSITIVE_INFINITY,
+    })
+  }
+
+  entries.sort((a, b) => a.tier - b.tier || a.sortPrice - b.sortPrice)
+  return entries.slice(0, limit).map(({ model, group, ratio, price }) => ({
+    model,
+    group,
+    ratio,
+    price,
+  }))
+}
+
 export function getPublicModelGroup(
   model: PricingModel,
   ratios: Record<string, number>

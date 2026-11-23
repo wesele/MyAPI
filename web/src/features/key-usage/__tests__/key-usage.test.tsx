@@ -764,3 +764,73 @@ test('shows call count, tokens, total spent, and performance status in model usa
   expect(within(gptPerf).getByText('—s')).toBeVisible()
   expect(within(gptPerf).getByText('—t/s')).toBeVisible()
 })
+
+test('shows featured Modern Translator card with download link and Chrome/Edge installation guide modal', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ success: true, data: [] }))
+  )
+  Object.defineProperty(window, 'isSecureContext', {
+    value: true,
+    configurable: true,
+  })
+  const writeText = vi
+    .spyOn(navigator.clipboard, 'writeText')
+    .mockResolvedValue(undefined)
+
+  const user = userEvent.setup()
+  renderPage()
+
+  const region = await screen.findByRole('region', {
+    name: 'Featured recommendation',
+  })
+  expect(within(region).getByText('Modern Translator')).toBeVisible()
+  expect(
+    within(region).getByText(
+      /selection & full-page translator extension with bilingual view/
+    )
+  ).toBeVisible()
+
+  const downloadLink = within(region).getByRole('link', {
+    name: 'Download extension (.zip)',
+  })
+  expect(downloadLink).toHaveAttribute(
+    'href',
+    '/downloads/modern-translator-v1.0.0.zip'
+  )
+  expect(downloadLink).toHaveAttribute(
+    'download',
+    'modern-translator-v1.0.0.zip'
+  )
+
+  await user.click(
+    within(region).getByRole('button', { name: 'Installation guide' })
+  )
+
+  const dialog = await screen.findByRole('dialog', {
+    name: 'Install Modern Translator',
+  })
+  expect(within(dialog).getByText('chrome://extensions/')).toBeVisible()
+
+  await user.click(
+    within(dialog).getByRole('button', { name: 'Copy Chrome extensions URL' })
+  )
+  await waitFor(() =>
+    expect(writeText).toHaveBeenCalledWith('chrome://extensions/')
+  )
+
+  await user.click(within(dialog).getByRole('tab', { name: 'Microsoft Edge' }))
+  expect(await within(dialog).findByText('edge://extensions/')).toBeVisible()
+
+  await user.click(
+    within(dialog).getByRole('button', { name: 'Copy Edge extensions URL' })
+  )
+  await waitFor(() =>
+    expect(writeText).toHaveBeenCalledWith('edge://extensions/')
+  )
+
+  await user.click(within(dialog).getAllByRole('button', { name: 'Close' })[0])
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  )
+})

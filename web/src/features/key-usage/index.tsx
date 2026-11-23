@@ -41,6 +41,7 @@ import {
   setStoredTrialKey,
   startKeyUsage,
 } from './api'
+import { FeaturedRecommendation } from './featured-recommendation'
 
 type ErrorKind =
   | 'invalid'
@@ -330,75 +331,78 @@ export function KeyUsagePage() {
 
   return (
     <SharedPortalLayout wide>
-      <section className='border-border/70 bg-background rounded-3xl border px-5 py-8 sm:px-10 sm:py-10'>
-        <h1 className='text-foreground text-3xl font-semibold tracking-tight sm:text-4xl'>
-          {t('Check or redeem')}
-        </h1>
-        <form
-          method='post'
-          noValidate
-          onSubmit={submitInput}
-          className='mt-5 max-w-2xl'
-        >
-          <Field data-invalid={error === 'invalid'}>
-            <FieldLabel htmlFor='usage-key' className='sr-only'>
-              {t('API Key or redemption code')}
-            </FieldLabel>
-            <div className='flex items-start gap-2'>
-              <Input
-                id='usage-key'
-                name='key'
-                type='password'
-                maxLength={256}
-                autoComplete='off'
-                autoCapitalize='none'
-                spellCheck={false}
-                aria-invalid={error === 'invalid'}
-                aria-describedby={
-                  error === 'invalid' ? 'usage-key-error' : undefined
-                }
-                placeholder={t('Paste API Key or redemption code')}
-                className='h-11 min-w-0 flex-1 text-base'
-                onChange={() => setError(undefined)}
-              />
+      <div className='grid gap-5 lg:grid-cols-5'>
+        <section className='border-border/70 bg-background flex flex-col justify-center rounded-3xl border px-5 py-8 sm:px-10 sm:py-10 lg:col-span-3'>
+          <h1 className='text-foreground text-3xl font-semibold tracking-tight sm:text-4xl'>
+            {t('Check or redeem')}
+          </h1>
+          <form
+            method='post'
+            noValidate
+            onSubmit={submitInput}
+            className='mt-5 max-w-2xl'
+          >
+            <Field data-invalid={error === 'invalid'}>
+              <FieldLabel htmlFor='usage-key' className='sr-only'>
+                {t('API Key or redemption code')}
+              </FieldLabel>
+              <div className='flex items-start gap-2'>
+                <Input
+                  id='usage-key'
+                  name='key'
+                  type='password'
+                  maxLength={256}
+                  autoComplete='off'
+                  autoCapitalize='none'
+                  spellCheck={false}
+                  aria-invalid={error === 'invalid'}
+                  aria-describedby={
+                    error === 'invalid' ? 'usage-key-error' : undefined
+                  }
+                  placeholder={t('Paste API Key or redemption code')}
+                  className='h-11 min-w-0 flex-1 text-base'
+                  onChange={() => setError(undefined)}
+                />
+                <Button
+                  type='submit'
+                  className='h-11 px-4'
+                  disabled={pending || trialPending}
+                >
+                  {pending && <Spinner aria-hidden='true' />}
+                  {pending ? t('Processing...') : t('Confirm')}
+                </Button>
+              </div>
+              {error === 'invalid' && (
+                <FieldError id='usage-key-error'>{errors.invalid}</FieldError>
+              )}
+            </Field>
+          </form>
+          <div className='mt-5 flex flex-wrap items-center gap-3 border-t pt-4'>
+            {renderTrialButton()}
+            {inactiveTrial && (
               <Button
-                type='submit'
-                className='h-11 px-4'
+                type='button'
+                variant='outline'
                 disabled={pending || trialPending}
+                onClick={() =>
+                  void openClaimedTrialUsage(
+                    inactiveTrial.key,
+                    inactiveTrial.lookupId
+                  )
+                }
               >
-                {pending && <Spinner aria-hidden='true' />}
-                {pending ? t('Processing...') : t('Confirm')}
+                {t('View claimed Key')}
               </Button>
-            </div>
-            {error === 'invalid' && (
-              <FieldError id='usage-key-error'>{errors.invalid}</FieldError>
             )}
-          </Field>
-        </form>
-        <div className='mt-5 flex flex-wrap items-center gap-3 border-t pt-4'>
-          {renderTrialButton()}
-          {inactiveTrial && (
-            <Button
-              type='button'
-              variant='outline'
-              disabled={pending || trialPending}
-              onClick={() =>
-                void openClaimedTrialUsage(
-                  inactiveTrial.key,
-                  inactiveTrial.lookupId
-                )
-              }
-            >
-              {t('View claimed Key')}
-            </Button>
+          </div>
+          {error && error !== 'invalid' && (
+            <Alert variant='destructive' className='mt-4'>
+              <AlertDescription>{errors[error]}</AlertDescription>
+            </Alert>
           )}
-        </div>
-        {error && error !== 'invalid' && (
-          <Alert variant='destructive' className='mt-4'>
-            <AlertDescription>{errors[error]}</AlertDescription>
-          </Alert>
-        )}
-      </section>
+        </section>
+        <FeaturedRecommendation className='lg:col-span-2' />
+      </div>
       <PortalHighlights />
       <Dialog
         open={issuedDialog !== null}

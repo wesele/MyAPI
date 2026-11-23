@@ -31,6 +31,8 @@ import {
   discountPercent,
   formatDiscountLabel,
   getReferenceAmount,
+  HIGHLIGHT_MODEL_LIMIT,
+  selectHighlightModels,
 } from '../pricing'
 
 const model: PricingModel = {
@@ -167,4 +169,137 @@ test.each(['en', 'zhCN', 'zhTW', 'fr', 'ja', 'ru', 'vi', 'invalid_locale'])(
 
 test('rounds a converted half-cent up despite binary floating-point drift', () => {
   expect(createQuoteFormatters('en', 7.3).quote(0.35)).toBe('$0.35 / ¥2.56')
+})
+
+test('selects top highlight models sorted by input price ascending', () => {
+  const models: PricingModel[] = [
+    {
+      ...model,
+      id: 1,
+      model_name: 'expensive',
+      model_ratio: 2.5,
+      enable_groups: ['default'],
+    },
+    {
+      ...model,
+      id: 2,
+      model_name: 'per-request-cheap',
+      quota_type: 1,
+      model_price: 0.001,
+      enable_groups: ['default'],
+    },
+    {
+      ...model,
+      id: 3,
+      model_name: 'unlisted-group',
+      model_ratio: 0.001,
+      enable_groups: ['private'],
+    },
+    {
+      ...model,
+      id: 4,
+      model_name: 'vip-discounted',
+      model_ratio: 0.2,
+      enable_groups: ['vip'],
+    },
+    {
+      ...model,
+      id: 5,
+      model_name: 'free-model',
+      model_ratio: 0,
+      enable_groups: ['default'],
+    },
+    {
+      ...model,
+      id: 6,
+      model_name: 'flat-expr-low',
+      billing_mode: 'tiered_expr',
+      billing_expr: 'tier("base", p * 0.05 + c * 0.2)',
+      enable_groups: ['default'],
+    },
+    {
+      ...model,
+      id: 7,
+      model_name: 'mid-low',
+      model_ratio: 0.05,
+      enable_groups: ['default'],
+    },
+    {
+      ...model,
+      id: 8,
+      model_name: 'mid',
+      model_ratio: 0.15,
+      enable_groups: ['default'],
+    },
+    {
+      ...model,
+      id: 9,
+      model_name: 'mid-high',
+      model_ratio: 0.5,
+      enable_groups: ['default'],
+    },
+  ]
+
+  const selected = selectHighlightModels(models, { default: 1, vip: 0.5 })
+
+  expect(selected).toHaveLength(HIGHLIGHT_MODEL_LIMIT)
+  expect(selected.map((entry) => entry.model.model_name)).toEqual([
+    'free-model',
+    'flat-expr-low',
+    'mid-low',
+    'vip-discounted',
+    'mid',
+    'mid-high',
+  ])
+  expect(selected.map((entry) => entry.price?.current)).toEqual([
+    0, 0.05, 0.1, 0.2, 0.3, 1,
+  ])
+})
+
+test('places request and dynamic models after input-priced models when fewer than limit have input prices', () => {
+  const models: PricingModel[] = [
+    {
+      ...model,
+      id: 1,
+      model_name: 'dynamic-tiered',
+      billing_mode: 'tiered_expr',
+      billing_expr:
+        'len <= 1000 ? tier("short", p * 0.01 + c * 0.02) : tier("long", p * 0.05 + c * 0.1)',
+      enable_groups: ['default'],
+    },
+    {
+      ...model,
+      id: 2,
+      model_name: 'req-b',
+      quota_type: 1,
+      model_price: 0.2,
+      enable_groups: ['default'],
+    },
+    {
+      ...model,
+      id: 3,
+      model_name: 'req-a',
+      quota_type: 1,
+      model_price: 0.05,
+      enable_groups: ['default'],
+    },
+    {
+      ...model,
+      id: 4,
+      model_name: 'token-a',
+      model_ratio: 0.5,
+      enable_groups: ['default'],
+    },
+  ]
+
+  const selected = selectHighlightModels(models, { default: 1 })
+
+  expect(selected.map((entry) => entry.model.model_name)).toEqual([
+    'token-a',
+    'req-a',
+    'req-b',
+    'dynamic-tiered',
+  ])
+  expect(selectHighlightModels(undefined, { default: 1 })).toEqual([])
+  expect(selectHighlightModels(models, { default: 1 }, 0)).toEqual([])
 })
